@@ -1,0 +1,38 @@
+{
+  "name": "harness-movil",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Puente seguro PC-telefono para controlar DeepSeek Harness desde la misma Wi-Fi",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "tsx watch apps/bridge/src/main.ts",
+    "start": "tsx apps/bridge/src/main.ts",
+    "start:built": "node apps/bridge/dist/main.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test --test-isolation=none --test-force-exit \"test-dist/tests/**/*.test.js\"",
+    "test:coverage": "tsc -p tsconfig.test.json && node --experimental-test-coverage --test-coverage-include=\"**/test-dist/src/**\" --test-coverage-lines=80 --test-coverage-functions=75 --test-coverage-branches=60 --test --test-isolation=none --test-force-exit \"test-dist/tests/**/*.test.js\"",
+    "dup": "jscpd apps --threshold 0 --min-lines 5 --min-tokens 50",
+    "metrics": "npm run test:coverage && npm run dup"
+  },
+  "dependencies": {
+    "http-proxy": "^1.18.1",
+    "node-forge": "^1.3.1",
+    "qrcode": "^1.5.4",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/http-proxy": "^1.17.15",
+    "@types/node": "^24.0.0",
+    "@types/node-forge": "^1.3.11",
+    "@types/qrcode": "^1.5.5",
+    "@types/ws": "^8.5.13",
+    "jscpd": "^4.0.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "apps/bridge",
+    "outDir": "test-dist",
+    "declaration": false,
+    "noEmitOnError": true
+  },
+  "include": [
+    "apps/bridge/src/**/*.ts",
+    "apps/bridge/tests/**/*.ts"
+  ]
+}
