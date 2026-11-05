@@ -89,19 +89,34 @@ function ensureLcov() {
   return true
 }
 
+/**
+ * Lee el lcov separando dos conjuntos por archivo:
+ * - `instrumented`: toda línea con registro DA (haya sido ejecutada o no).
+ * - `covered`: las líneas con hits > 0.
+ *
+ * La cobertura de código nuevo se calcula SIEMPRE sobre las líneas
+ * instrumentadas del diff, no sobre todos los añadidos (que incluyen
+ * comentarios, tipos e imports). Es el criterio de diff-cover.
+ */
 function readCoverage() {
   if (!existsSync(LCOV_PATH)) return null
-  const coverage = new Map()
+  const coverage = { covered: new Map(), instrumented: new Map() }
   let current = null
+  const ensure = (file) => {
+    if (!coverage.covered.has(file)) coverage.covered.set(file, new Set())
+    if (!coverage.instrumented.has(file)) coverage.instrumented.set(file, new Set())
+  }
   for (const line of readFileSync(LCOV_PATH, 'utf8').split(/\r?\n/)) {
     if (line.startsWith('SF:')) {
       current = toRepoRelative(line.slice(3).trim())
-      if (!coverage.has(current)) coverage.set(current, new Set())
+      ensure(current)
     } else if (line.startsWith('DA:') && current !== null) {
       const [lineNumber, hits] = line.slice(3).split(',')
       const parsedLine = Number.parseInt(lineNumber, 10)
       const parsedHits = Number.parseInt(hits, 10)
-      if (Number.isInteger(parsedLine) && parsedHits > 0) coverage.get(current).add(parsedLine)
+      if (!Number.isInteger(parsedLine)) continue
+      coverage.instrumented.get(current).add(parsedLine)
+      if (Number.isInteger(parsedHits) && parsedHits > 0) coverage.covered.get(current).add(parsedLine)
     } else if (line.trim() === 'end_of_record') {
       current = null
     }
@@ -109,17 +124,20 @@ function readCoverage() {
   return coverage
 }
 
-function coveredLinesFor(coverage, file) {
+function coverageFor(coverage, file) {
   if (!coverage) return null
-  if (coverage.has(file)) return coverage.get(file)
-  for (const [key, lines] of coverage) {
-    if (key.endsWith('/' + file)) return lines
+  const direct = { covered: coverage.covered.get(file), instrumented: coverage.instrumented.get(file) }
+  if (direct.instrumented) return direct
+  for (const [key] of coverage.instrumented) {
+    if (!key.endsWith('/' + file)) continue
+    return { covered: coverage.covered.get(key), instrumented: coverage.instrumented.get(key) }
   }
   // La cobertura puede venir del JavaScript compilado en test-dist.
   const compiled = file.replace('apps/bridge/src/', 'test-dist/src/').replace(/\.ts$/, '.js')
-  if (coverage.has(compiled)) return coverage.get(compiled)
-  for (const [key, lines] of coverage) {
-    if (key.endsWith('/' + compiled)) return lines
+  for (const [key] of coverage.instrumented) {
+    if (key === compiled || key.endsWith('/' + compiled)) {
+      return { covered: coverage.covered.get(key), instrumented: coverage.instrumented.get(key) }
+    }
   }
   return null
 }
@@ -150,30 +168,43 @@ function readNewLines(base) {
 }
 
 function computeNewCoverage(newLines, coverage) {
-  if (!newLines) return { newLines: null, newLinesCovered: null, newCoveragePct: null }
+  if (!newLines) return { newLines: null, newInstrumentedLines: null, newLinesCovered: null, newCoveragePct: null }
+  let addedLines = 0
   let total = 0
   let covered = 0
   let filesWithCoverage = 0
   for (const [file, lines] of newLines) {
-    const coveredSet = coveredLinesFor(coverage, file)
-    if (coveredSet) filesWithCoverage += 1
+    addedLines += lines.size
+    const fileCoverage = coverageFor(coverage, file)
+    if (!fileCoverage || !fileCoverage.instrumented) continue
+    filesWithCoverage += 1
     for (const line of lines) {
+      if (!fileCoverage.instrumented.has(line)) continue
       total += 1
-      if (coveredSet && coveredSet.has(line)) covered += 1
+      if (fileCoverage.covered && fileCoverage.covered.has(line)) covered += 1
     }
   }
-  if (total === 0) {
+  if (addedLines === 0) {
     warn('git diff no reporta líneas nuevas en ' + SRC_DIR + ' respecto a la base; la cobertura de líneas nuevas no aplica.')
-    return { newLines: 0, newLinesCovered: 0, newCoveragePct: null }
+    return { newLines: 0, newInstrumentedLines: 0, newLinesCovered: 0, newCoveragePct: null }
   }
   if (!coverage) {
-    warn('sin lcov no se puede calcular la cobertura de las ' + String(total) + ' líneas nuevas.')
-    return { newLines: total, newLinesCovered: null, newCoveragePct: null }
+    warn('sin lcov no se puede calcular la cobertura de las ' + String(addedLines) + ' líneas nuevas.')
+    return { newLines: addedLines, newInstrumentedLines: null, newLinesCovered: null, newCoveragePct: null }
   }
   if (filesWithCoverage === 0) {
     warn('el lcov no contiene rutas de ' + SRC_DIR + '; revisa la cobertura generada.')
   }
-  return { newLines: total, newLinesCovered: covered, newCoveragePct: (covered / total) * 100 }
+  if (total === 0) {
+    warn('ninguna de las ' + String(addedLines) + ' líneas nuevas es ejecutable segun lcov; no aplica cobertura.')
+    return { newLines: addedLines, newInstrumentedLines: 0, newLinesCovered: 0, newCoveragePct: null }
+  }
+  return {
+    newLines: addedLines,
+    newInstrumentedLines: total,
+    newLinesCovered: covered,
+    newCoveragePct: (covered / total) * 100,
+  }
 }
 
 function runJscpd(label, targets, outputDir) {
@@ -222,6 +253,7 @@ function printSummary(summary) {
   console.log('Resumen de métricas de cambio')
   console.log('  base:            ' + summary.base)
   console.log('  newLines:        ' + (summary.newLines === null ? 'n/a' : String(summary.newLines)))
+  console.log('  newExecutable:   ' + (summary.newInstrumentedLines === null ? 'n/a' : String(summary.newInstrumentedLines)))
   console.log('  newLinesCovered: ' + (summary.newLinesCovered === null ? 'n/a' : String(summary.newLinesCovered)))
   console.log('  newCoveragePct:  ' + value(summary.newCoveragePct, '%'))
   console.log('  repoDupPct:      ' + value(summary.repoDupPct, '%'))
@@ -245,6 +277,7 @@ function main() {
   printSummary({
     base,
     newLines: coverageSummary.newLines,
+    newInstrumentedLines: coverageSummary.newInstrumentedLines,
     newLinesCovered: coverageSummary.newLinesCovered,
     newCoveragePct: coverageSummary.newCoveragePct,
     repoDupPct,
