@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#101114" />
+    <title>Harness Móvil</title>
+    <link rel="icon" type="image/svg+xml" href="/_hm/icon.svg" />
+    <link rel="stylesheet" href="/_hm/styles.css" />
+    <script src="/_hm/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot" aria-hidden="true"></span>
+        <span>Harness Móvil</span>
+      </div>
+      <span id="status-pill" class="pill" data-state="inactive">Comprobando…</span>
+    </header>
+
+    <main>
+      <p id="banner" class="banner" hidden role="status"></p>
+      <p id="error" class="banner error" hidden role="alert"></p>
+
+      <section id="welcome" class="card" hidden>
+        <h1>Controlá Harness desde el teléfono</h1>
+        <p class="muted">
+          El agente, las herramientas y la escritura de archivos siguen corriendo en la PC. Este puente
+          expone la interfaz oficial de DeepSeek Harness a tu red Wi-Fi con un emparejamiento propio.
+        </p>
+        <ol class="steps">
+          <li>Instalá la CA local una sola vez en el teléfono.</li>
+          <li>Escaneá el QR o escribí el código que muestra la PC.</li>
+          <li>Activá la conexión y abrí Harness.</li>
+        </ol>
+      </section>
+
+      <section id="ca-card" class="card" hidden>
+        <h2>1. Certificado de la PC</h2>
+        <p class="muted">
+          La conexión usa HTTPS con una CA local. Instalala una vez en el teléfono; sin esto el
+          navegador mostrará una advertencia de certificado.
+        </p>
+        <div class="row wrap">
+          <a class="button secondary" href="/_hm/ca.cer" download="harness-movil-ca.cer">Descargar CA (.cer)</a>
+          <a class="button ghost" href="/_hm/ca.pem" download="harness-movil-ca.pem">CA en PEM</a>
+        </div>
+        <details class="help">
+          <summary>Android</summary>
+          <p>
+            Ajustes → Seguridad → Cifrado y credenciales → Instalar un certificado → Certificado de CA →
+            elegí el archivo descargado. Chrome confía en las CA de usuario para navegar.
+          </p>
+        </details>
+        <details class="help">
+          <summary>iPhone / iPad</summary>
+          <p>
+            Safari descarga el perfil → Ajustes → Perfil descargado → Instalar. Luego Ajustes →
+            General → Información → Ajustes de confianza de certificados → activá la CA de Harness Móvil.
+          </p>
+        </details>
+      </section>
+
+      <section id="pair-card" class="card" hidden>
+        <h2>2. Emparejar este dispositivo</h2>
+        <p class="muted">Pedí el código en la PC: panel <code>http://127.0.0.1:8444/_hm/</code>.</p>
+        <form id="pair-form" class="form">
+          <label for="pair-name">Nombre del dispositivo</label>
+          <input id="pair-name" name="name" autocomplete="off" maxlength="60" placeholder="Teléfono" />
+          <label for="pair-code">Código de 6 dígitos</label>
+          <input
+            id="pair-code"
+            name="code"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            pattern="[0-9]*"
+            maxlength="6"
+            placeholder="000000"
+            required
+          />
+          <button class="button primary" type="submit">Emparejar</button>
+        </form>
+      </section>
+
+      <section id="admin-pair-card" class="card" hidden>
+        <h2>Emparejar un teléfono</h2>
+        <p class="muted">Escaneá el QR desde el teléfono o escribí el código en la pantalla de emparejamiento.</p>
+        <div class="pairing-grid">
+          <img id="pair-qr" alt="Código QR de emparejamiento" width="220" height="220" />
+          <div class="pairing-info">
+            <div id="pair-code-display" class="big-code">······</div>
+            <div id="pair-expiry" class="muted small"></div>
+            <button id="pair-refresh" class="button secondary" type="button">Generar código nuevo</button>
+            <a id="pair-link" class="button ghost" href="/_hm/" hidden>Copiar enlace</a>
+          </div>
+        </div>
+      </section>
+
+      <section id="console" class="card" hidden>
+        <h2>Conexión</h2>
+        <p id="connection-detail" class="muted"></p>
+        <div class="row wrap">
+          <button id="activate" class="button primary" type="button">Activar conexión</button>
+          <button id="deactivate" class="button secondary" type="button" hidden>Desactivar</button>
+          <a id="open-harness" class="button success" href="/" hidden>Abrir Harness</a>
+        </div>
+        <p id="activation-error" class="banner error small" hidden></p>
+      </section>
+
+      <section id="devices-card" class="card" hidden>
+        <h2>Dispositivos</h2>
+        <ul id="devices" class="devices"></ul>
+        <button id="logout" class="button ghost danger-text" type="button" hidden>Olvidar este dispositivo</button>
+      </section>
+
+      <section id="admin-card" class="card" hidden>
+        <h2>Diagnóstico</h2>
+        <p class="muted small">
+          Panel local de la PC. Solo accesible desde <code>127.0.0.1</code>; no está expuesto a la red.
+        </p>
+        <pre id="diagnostics" class="diagnostics"></pre>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>El puente nunca envía el token de Harness al teléfono.</span>
+      <span id="version"></span>
+    </footer>
+  </body>
+</html>
