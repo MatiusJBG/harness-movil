@@ -22,8 +22,9 @@ El puente lanza su propio `dsh web --profile mobile` con el mismo `$DSH_HOME`. E
 interfaces documentadas (CLI, perfil, patch, flags) y evita tocar el proceso Electron o inventar un
 canal IPC.
 
-**Consecuencia**: comparte credenciales, workspaces y sesiones en disco, pero no puede mantener viva
-la misma sesión que la app de escritorio. Se documenta como limitación de v1.
+**Consecuencia**: comparte credenciales, workspaces, skills y archivos, pero por defecto **no**
+comparte el log de sesiones con la app de escritorio (ver decisión 8). No puede mantener viva la misma
+sesión que la app de escritorio.
 
 **Alternativas descartadas**: plugin dentro del host de escritorio que abra un listener propio
 (superficie de seguridad no soportada, acoplada a Electron), o cliente móvil propio contra
@@ -90,10 +91,30 @@ transformar TypeScript, así que Vitest no arranca. Las pruebas usan `node:test`
 **Consecuencia**: `npm test` funciona también dentro del sandbox del agente; la cobertura se obtiene
 con `--experimental-test-coverage` de Node y la duplicación con `jscpd`.
 
+### 8. Sesiones aisladas por defecto
+
+Harness toma un **lock de kernel por sesión** (`session/writer-held`): dos procesos no pueden escribir
+la misma sesión. La app de escritorio mantiene vivas las sesiones abiertas, así que el host móvil
+recibía “This session is already in use…” al intentar escribir una de ellas.
+
+El host móvil arranca con un overlay `--patch` generado en `%LOCALAPPDATA%\harness-movil` que cambia
+`session-persistence-jsonl.root` a `$DSH_HOME/sessions-mobile`. Así el teléfono tiene su propio log
+append-only y nunca compite por el lock. `dsh.sessions: "shared"` desactiva el overlay de sesiones para quien
+prefiera la misma lista de sesiones y acepte cerrar la sesión en escritorio primero.
+
+El mismo overlay copia la fila `agent-default-model` del perfil `desktop`, para que el host móvil use
+el mismo proveedor/modelo que la app (p. ej. `deepseek-account`) en vez de caer en una ruta de API key
+sin credencial válida. Si el perfil `desktop` no define esa fila, el modelo se configura desde el
+teléfono en Ajustes → Modelos.
+
+**Alternativas descartadas**: detectar el lock (en Windows es un semáforo de kernel sin huella en
+disco), borrar el lock (corrompe la sesión), o interceptar el `open` para hacer un fork transparente
+(el cliente seguiría apuntando al id bloqueado).
+
 ## Verificación
 
-- 94 pruebas unitarias/de integración (upstream falso HTTP+WS y router completo): verdes.
-- Cobertura del código fuente: 90.2 % de líneas, 80.6 % de ramas y 91.0 % de funciones; duplicación 0 % (jscpd).
+- 98 pruebas unitarias/de integración (upstream falso HTTP+WS y router completo): verdes.
+- Cobertura del código fuente: 90.7 % de líneas, 80.7 % de ramas y 90.8 % de funciones; duplicación 0 % (jscpd).
 - E2E manual: `dsh web` real arrancado por el puente, token intercambiado, UI oficial cargada en un
   viewport móvil 360/390/430 sin scroll horizontal, WebSocket `/api/remote.mux` abierto a través del
   proxy, panel de emparejamiento y activación/desactivación funcionando.

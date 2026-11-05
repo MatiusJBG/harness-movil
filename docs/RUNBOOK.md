@@ -113,6 +113,22 @@ Editá `%LOCALAPPDATA%\harness-movil\config.json` y reiniciá el puente. No hay 
 - **Certificado propio**: `tls.mode: "files"` + `certFile`/`keyFile` (y `caFile` opcional).
 - **No apagar por inactividad**: `activation.idleAutoOffMinutes: 0`.
 - **Más dispositivos**: `pairing.maxDevices`.
+- **Sesiones**: `dsh.sessions` (`isolated` por defecto, `shared` para la misma lista que escritorio).
+
+## Sesiones y el lock de escritura
+
+Harness permite **un solo escritor vivo por sesión** (lock de kernel). Si la app de escritorio tiene
+una sesión abierta, otro proceso recibe “This session is already in use…” al intentar escribirla.
+
+- **`isolated` (default)**: el host móvil usa `$DSH_HOME/sessions-mobile`; el teléfono tiene su propio
+  historial y nunca choca con escritorio. No requiere hacer nada.
+- **`shared`**: el host móvil usa `$DSH_HOME/sessions`; el teléfono ve las mismas sesiones, pero una
+  sesión viva en escritorio sigue bloqueada hasta que la cierres ahí. Las sesiones frías se pueden
+  abrir en el teléfono y quedan bloqueadas para escritorio mientras estén abiertas en el host móvil.
+
+Para cambiar de modo: `dsh.sessions` en `config.json` y reiniciar el puente.
+
+El overlay del host móvil también copia `agent-default-model` del perfil `desktop`, así el teléfono usa el mismo proveedor/modelo que la app. Si el perfil `desktop` no lo define, configurá el modelo en Ajustes → Modelos desde el teléfono.
 
 ## Diagnóstico
 
@@ -125,7 +141,7 @@ Editá `%LOCALAPPDATA%\harness-movil\config.json` y reiniciá el puente. No hay 
 | 401 en el teléfono | Dispositivo revocado o cookie de otro host | Volvé a emparejar |
 | 503 en `/api/*` | Conexión desactivada o host arrancando | Activá y esperá el estado `active` |
 | UI en blanco | Proxy sin upstream o versión incompatible | Mirá `logs\bridge.log`; verificá `dsh --version` |
-| La sesión no abre | Está viva en la app de escritorio | Cerrá esa sesión en escritorio o usá otra |
+| La sesión no abre / “already in use” | La sesión está viva en otro proceso (app de escritorio) | Con `isolated` no pasa; con `shared`, cerrá esa sesión en escritorio o usá otra |
 | QR vencido | TTL 5 min | Generá uno nuevo |
 | “Demasiados intentos” | Rate limit | Esperá un minuto |
 

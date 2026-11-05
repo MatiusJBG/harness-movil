@@ -98,8 +98,50 @@ La UI oficial se abre en `/`. Para instalarla como app: menú del navegador → 
 pantalla de inicio** (Harness ya trae `manifest` y `display: standalone`). El icono abre `/`;
 si la conexión está inactiva, el puente redirige al panel.
 
+### 4. App Android (APK opcional)
+
+Si no querés usar el navegador, hay un envoltorio Android nativo en [`android/`](android/README.md):
+WebView a pantalla completa con la misma UI oficial, escaneo del QR, subida de archivos, descargas
+y pinning del certificado. **El build copia la CA de tu puente** (`%LOCALAPPDATA%\harness-movil\tls\ca.pem`)
+al APK, así que no hay que instalar nada en Android. Si regenerás la CA, recompilá el APK (o usá
+`-CaFile <ruta>`).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-apk.ps1
+adb install -r android\artifacts\HarnessMovil-0.1.0-debug.apk
+```
+
+El APK es de depuración (firmado con la clave debug, instalable). Para distribuirlo hace falta un
+release firmado con tu keystore. Detalles y hoja de ruta: [`android/README.md`](android/README.md).
+
+![La app Android abriendo la UI oficial de Harness a través del puente](docs/img/harness-movil-emulador.png)
+
 **Desactivar** detiene el host y deja el panel disponible. El apagado automático por inactividad
 está en `activation.idleAutoOffMinutes` (0 lo desactiva).
+
+### Sesiones y el aviso “This session is already in use”
+
+Harness impone **un solo escritor vivo por sesión** (un lock de kernel). Si la app de escritorio tiene
+una sesión abierta, otro proceso no puede escribir en ella y la UI muestra justamente ese aviso.
+
+Para que el teléfono nunca choque, el host móvil usa por defecto su **propio directorio de sesiones**:
+`$DSH_HOME/sessions-mobile` (modo `isolated`). El teléfono ve y crea su propio historial, separado del
+de escritorio; credenciales, workspaces, skills y archivos siguen siendo los mismos.
+
+Si preferís la **misma lista de sesiones** que la app de escritorio, cambiá en `%LOCALAPPDATA%\harness-movil\config.json`:
+
+```json
+{
+  "dsh": { "sessions": "shared" }
+}
+```
+
+y reiniciá el puente. En modo `shared`, una sesión que esté viva en escritorio seguirá bloqueada
+hasta que la cierres ahí; las sesiones frías sí se pueden abrir en el teléfono (y quedan bloqueadas
+para escritorio mientras el host móvil las tenga abiertas). El modo activo se muestra en el panel y
+en `/_hm/api/status`.
+
+El puente también copia la fila `agent-default-model` del perfil `desktop` al overlay del host móvil, para que el teléfono use el mismo proveedor/modelo que ya tenés funcionando en la app (por ejemplo `deepseek-account`), en lugar de una ruta de API key sin credencial válida.
 
 ## Panel de la PC (`http://127.0.0.1:8444/_hm/`)
 
@@ -121,6 +163,7 @@ El listener de administración escucha solo en `127.0.0.1`; no se expone a la re
 | `dsh.command` | `auto` | `auto` busca `dsh` en PATH y luego el CLI de la app de escritorio. |
 | `dsh.profile` | `mobile` | Perfil de Harness que arranca el puente (se crea desde la plantilla `web`). |
 | `dsh.home` | `null` | `$DSH_HOME` a usar; `null` = `DSH_HOME` del entorno o `~/.dsh`. |
+| `dsh.sessions` | `isolated` | `isolated`: historial propio en `$DSH_HOME/sessions-mobile` (sin choques con escritorio). `shared`: usa `$DSH_HOME/sessions` y exige cerrar la sesión en escritorio. |
 | `dsh.extraArgs` | `[]` | Argumentos extra para `dsh web`. |
 | `dsh.startTimeoutMs` | `90000` | Espera máxima a que Harness imprima su URL con token. |
 | `tls.mode` | `local-ca` | `local-ca` genera CA+hoja; `files` usa `certFile`/`keyFile`/`caFile`. |
@@ -167,9 +210,11 @@ npm run dup         # jscpd: duplicación
 npm run metrics     # ambas
 ```
 
-- 94 pruebas (unitarias + integración con upstream falso HTTP/WS + router completo).
-- Cobertura del código fuente: **90.2 % de líneas, 80.6 % de ramas y 91.0 % de funciones** (reporte de Node con `--experimental-test-coverage`).
+- 98 pruebas (unitarias + integración con upstream falso HTTP/WS + router completo).
+- Cobertura del código fuente: **90.7 % de líneas, 80.7 % de ramas y 90.8 % de funciones** (reporte de Node con `--experimental-test-coverage`).
 - Duplicación (jscpd, `minLines 5`, `minTokens 50`): **0 %**.
+- Android: **9 pruebas JVM** (gradlew testDebugUnitTest); el wrapper no tiene cobertura instrumentada (validación E2E manual en emulador).
+- Duplicación Java (jscpd): **0 %** (4 archivos, 762 líneas).
 
 El runner es `node:test` con un shim mínimo compatible con la API de Vitest
 (`apps/bridge/tests/helpers/testkit.ts`). Motivo: el sandbox de archivos de DeepSeek Harness
@@ -193,16 +238,19 @@ apps/bridge/
   src/http.ts          router: dashboard, gates y proxy
   src/main.ts          servidores LAN (HTTPS) y admin (HTTP loopback), QR, shutdown
   public/              panel (HTML/CSS/JS sin build)
-  tests/               94 pruebas + upstream falso + shim node:test
-scripts/               firewall, tarea de inicio, lanzador oculto
+  tests/               98 pruebas + upstream falso + shim node:test
+scripts/               firewall, tarea de inicio, lanzador oculto, build-apk
 docs/                  seguridad, runbook y ADR
+android/               app Android (WebView nativo, QR, pinning de certificado)
 ```
 
 ## Limitaciones conocidas (v1)
 
 - **No se acopla a la sesión viva de la app de escritorio.** El host móvil es otro proceso sobre el
-  mismo `$DSH_HOME`: comparte credenciales, workspaces y sesiones en disco, pero una sesión abierta
-  en escritorio no puede estar viva en ambos a la vez. Cerrá esa sesión o usá otra.
+  mismo `$DSH_HOME`, pero por defecto usa un historial de sesiones aislado (`sessions-mobile`) para
+  no chocar con el lock de escritura de la app de escritorio. Con `dsh.sessions: "shared"` comparte la
+  lista, pero una sesión abierta en escritorio no puede estar viva en ambos a la vez: cerrala ahí
+  antes de usarla en el teléfono.
 - Solo LAN/Wi‑Fi. Fuera de casa requeriría Tailscale/Cloudflare Tunnel (no incluido).
 - Sin notificaciones push ni service worker; la UI reconecta sola al volver a primer plano.
 - Sin APK nativa: la app es la PWA oficial instalada desde el navegador.
