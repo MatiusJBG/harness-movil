@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Harness Móvil</string>
+    <string name="setup_title">Configurar servidor</string>
+
+    <string name="setup_heading">Conectar con la PC</string>
+    <string name="setup_help">Abrí el panel del puente en la PC (http://127.0.0.1:8444/_hm/) para ver la IP y el QR. La primera vez aceptá el certificado autofirmado; después queda fijado en la app.</string>
+    <string name="server_label">URL del puente</string>
+    <string name="server_hint">https://192.168.1.44:8443</string>
+    <string name="scan_qr">Escanear QR</string>
+    <string name="save_open">Guardar y abrir</string>
+    <string name="cancel">Cancelar</string>
+    <string name="forget_cert">Olvidar certificado</string>
+    <string name="fingerprint_none">Sin certificado guardado todavía.</string>
+    <string name="fingerprint_saved">Certificado fijado: %1$s</string>
+    <string name="fingerprint_forgotten">Certificado olvidado. Se pedirá confirmar de nuevo.</string>
+    <string name="error_url_empty">Escribí la URL del puente.</string>
+    <string name="error_url_scheme">La URL debe empezar con https://</string>
+    <string name="error_url_invalid">No se pudo interpretar la URL.</string>
+    <string name="error_qr">El QR no contiene una URL válida del puente.</string>
+
+    <string name="menu_reload">Recargar</string>
+    <string name="menu_settings">Configurar servidor</string>
+    <string name="menu_browser">Abrir en navegador</string>
+    <string name="menu_forget">Olvidar certificado</string>
+    <string name="menu_about">Acerca de</string>
+    <string name="menu_about_title">Harness Móvil</string>
+    <string name="menu_about_message">Envoltorio Android de la interfaz web oficial de DeepSeek Harness.\n\nVersión %1$s\n\nLa ejecución, los archivos y las credenciales siguen en la PC. Esta app solo muestra y controla el puente.</string>
+    <string name="about_close">Cerrar</string>
+
+    <string name="cert_title">Certificado no confiable</string>
+    <string name="cert_message">El puente usa un certificado autofirmado.\n\nServidor: %1$s\nHuella SHA-256:\n%2$s\n\nVerificá que coincida con la huella del panel de la PC antes de confiar.</string>
+    <string name="cert_trust">Confiar y continuar</string>
+    <string name="cert_reject">Cancelar</string>
+    <string name="cert_changed">El certificado del servidor cambió. Si reinstalaste el puente o cambiaste de red, olvidá el certificado y volvé a confiar. Si no, cancelá y revisá la PC.</string>
+
+    <string name="offline_title">Sin conexión con el puente</string>
+    <string name="offline_message">No se pudo cargar %1$s. Verificá que el puente esté activo, que estés en la misma Wi-Fi y que la IP sea correcta.</string>
+    <string name="offline_retry">Reintentar</string>
+    <string name="offline_settings">Configurar</string>
+
+    <string name="download_failed">No se pudo descargar el archivo.</string>
+    <string name="no_app_for_link">No hay una app para abrir ese enlace.</string>
+</resources>

@@ -7,3 +7,8 @@ coverage/
 .env
 .env.*
 !.env.example
+android/.gradle/
+android/local.properties
+android/app/build/
+android/artifacts/
+android/app/src/main/res/raw/harness_ca.pem
