@@ -1,6 +1,7 @@
-'use strict'
+import { createApiClient } from './api-client.js'
 
 const $ = (id) => document.getElementById(id)
+const api = createApiClient()
 const LABELS = {
   inactive: 'Desactivada',
   starting: 'Arrancando…',
@@ -53,34 +54,6 @@ function clearError() {
   node.textContent = ''
 }
 
-async function api(path, options = {}) {
-  const headers = { 'X-HM-CSRF': '1' }
-  let body
-  if (options.body !== undefined) {
-    headers['content-type'] = 'application/json'
-    body = JSON.stringify(options.body)
-  }
-  const response = await fetch(path, {
-    method: options.method ?? 'GET',
-    headers,
-    body,
-    cache: 'no-store',
-    credentials: 'same-origin',
-  })
-  let data = null
-  try {
-    data = await response.json()
-  } catch {
-    data = null
-  }
-  if (!response.ok) {
-    const error = new Error((data && data.error) || `Error HTTP ${response.status}`)
-    error.status = response.status
-    throw error
-  }
-  return data
-}
-
 function deviceName() {
   const ua = navigator.userAgent || ''
   if (/iPhone/.test(ua)) return 'iPhone'
@@ -107,9 +80,9 @@ function relativeTime(iso) {
 }
 
 function render() {
-  const session = state.session || { paired: false, admin: false, active: false, state: 'inactive' }
+  const session = state.session || { paired: false, admin: false, activation: { state: 'inactive' } }
   const status = state.status
-  const activationState = (status && status.state) || session.state || 'inactive'
+  const activationState = (status && status.state) || (session.activation && session.activation.state) || 'inactive'
 
   setText('status-pill', LABELS[activationState] || activationState)
   $('status-pill').dataset.state = activationState
@@ -258,14 +231,14 @@ async function refresh() {
   if (refreshing) return
   refreshing = true
   try {
-    state.session = await api('/_hm/api/session')
+    state.session = await api.get('/_hm/api/v1/session')
     if (state.session.paired || state.session.admin) {
-      const [status, devices] = await Promise.all([api('/_hm/api/status'), api('/_hm/api/devices')])
+      const [status, devices] = await Promise.all([api.get('/_hm/api/v1/status'), api.get('/_hm/api/v1/devices')])
       state.status = status
       state.devices = devices.devices || []
       if (state.session.admin) {
-        state.pairing = await api('/_hm/api/pairing')
-        if (!state.diagnostics) state.diagnostics = await api('/_hm/api/diagnostics')
+        state.pairing = await api.get('/_hm/api/v1/pairing/ticket')
+        if (!state.diagnostics) state.diagnostics = await api.get('/_hm/api/v1/diagnostics')
       }
     } else {
       state.status = null
@@ -286,7 +259,7 @@ async function activate() {
   state.busy = true
   render()
   try {
-    await api('/_hm/api/activate', { method: 'POST' })
+    await api.post('/_hm/api/v1/activation')
     showBanner('Activando la conexión…')
   } catch (error) {
     showError(error.message)
@@ -301,7 +274,7 @@ async function deactivate() {
   state.busy = true
   render()
   try {
-    await api('/_hm/api/deactivate', { method: 'POST' })
+    await api.del('/_hm/api/v1/activation')
     showBanner('Conexión desactivada.')
   } catch (error) {
     showError(error.message)
@@ -317,7 +290,7 @@ async function revokeDevice(device, self) {
     : `¿Revocar "${device.name}"?`
   if (!window.confirm(message)) return
   try {
-    await api(`/_hm/api/devices/${encodeURIComponent(device.id)}`, { method: 'DELETE' })
+    await api.del(`/_hm/api/v1/devices/${encodeURIComponent(device.id)}`)
     if (self) {
       showBanner('Dispositivo olvidado.')
       state.session = null
@@ -336,7 +309,7 @@ async function revokeDevice(device, self) {
 async function logout() {
   if (!window.confirm('¿Olvidar este dispositivo?')) return
   try {
-    await api('/_hm/api/logout', { method: 'POST' })
+    await api.del('/_hm/api/v1/session')
     showBanner('Dispositivo olvidado.')
     state.session = null
     state.status = null
@@ -350,7 +323,7 @@ async function logout() {
 async function submitPairing(code, name, secret) {
   const body = { code, name }
   if (secret) body.secret = secret
-  const result = await api('/_hm/api/pair', { method: 'POST', body })
+  const result = await api.post('/_hm/api/v1/session/pairing', body)
   showBanner(`Emparejado como ${result.device.name}.`)
   history.replaceState(null, '', '/_hm/')
   await refresh()
@@ -372,7 +345,7 @@ async function tryAutoPair() {
 
 async function refreshPairing() {
   try {
-    state.pairing = await api('/_hm/api/pairing/refresh', { method: 'POST' })
+    state.pairing = await api.post('/_hm/api/v1/pairing/ticket')
     render()
   } catch (error) {
     showError(error.message)
