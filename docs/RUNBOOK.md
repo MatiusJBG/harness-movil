@@ -13,7 +13,7 @@ Verificá que DeepSeek Harness esté instalado. El puente lo detecta en este ord
 
 1. `dsh` en `PATH`.
 2. `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`.
-3. `dsh.command` de `config.json`.
+3. `harness.command` de `config.json`.
 
 Versión probada: `dsh 0.2.1-rc.3` (runtime Node 24.21, Electron 44.7). El puente no fija la versión;
 si actualizás la app de escritorio, reiniciá el puente.
@@ -107,13 +107,48 @@ debe volver a emparejarse. Si revocás el dispositivo actual desde el teléfono,
 ## Cambiar la configuración
 
 Editá `%LOCALAPPDATA%\harness-movil\config.json` y reiniciá el puente. No hay recarga en caliente.
+El archivo usa `schemaVersion: 2`:
 
-- **Otro puerto**: `listen.port` (el admin pasa a `port + 1` salvo `listen.adminPort`).
-- **Otra interfaz**: `listen.host` con una IPv4 literal.
+```json
+{
+  "schemaVersion": 2,
+  "server": { "lan": { "host": "auto", "port": 8443 }, "admin": { "host": "127.0.0.1", "port": null }, "publicHost": null },
+  "harness": { "command": "auto", "profile": "mobile", "home": null, "sessions": "isolated", "extraArgs": [], "startTimeoutMs": 90000 },
+  "tls": { "mode": "local-ca", "certFile": null, "keyFile": null, "caFile": null },
+  "pairing": { "ticketTtlSeconds": 300, "maxDevices": 3 },
+  "activation": { "autoStart": false, "idleAutoOffMinutes": 30 },
+  "limits": { "pairingPerMinute": 10, "maxBodyBytes": 1048576 }
+}
+```
+
+- **Otro puerto**: `server.lan.port` (el admin pasa a `port + 1` salvo `server.admin.port`).
+- **Otra interfaz**: `server.lan.host` con una IPv4 literal.
 - **Certificado propio**: `tls.mode: "files"` + `certFile`/`keyFile` (y `caFile` opcional).
 - **No apagar por inactividad**: `activation.idleAutoOffMinutes: 0`.
 - **Más dispositivos**: `pairing.maxDevices`.
-- **Sesiones**: `dsh.sessions` (`isolated` por defecto, `shared` para la misma lista que escritorio).
+- **Sesiones**: `harness.sessions` (`isolated` por defecto, `shared` para la misma lista que escritorio).
+
+### Migración desde el formato v1
+
+Un `config.json` sin `schemaVersion` (formato v1) se migra **automáticamente** al arrancar:
+
+1. Se respalda el original como `config.v1.json` (solo si no existe).
+2. Se reescribe `config.json` con el esquema v2 de forma atómica.
+3. El log registra `configuración migrada a schemaVersion 2`.
+
+Renombres principales: `listen.*` → `server.lan.*`, `listen.adminPort` → `server.admin.port`,
+`publicHost` → `server.publicHost`, `dsh.*` → `harness.*`,
+`pairing.codeTtlSeconds` → `pairing.ticketTtlSeconds`.
+
+Para validar o migrar en seco, sin arrancar los servidores:
+
+```powershell
+npm start -- --check-config
+```
+
+Claves desconocidas o una mezcla de v1 y v2 ahora **fallan con un mensaje accionable** (antes se
+ignoraban). `devices.json` y la CA instalada no cambian: no hace falta re-emparejar ni reinstalar el
+certificado.
 
 ## Sesiones y el lock de escritura
 
@@ -126,7 +161,7 @@ una sesión abierta, otro proceso recibe “This session is already in use…”
   sesión viva en escritorio sigue bloqueada hasta que la cierres ahí. Las sesiones frías se pueden
   abrir en el teléfono y quedan bloqueadas para escritorio mientras estén abiertas en el host móvil.
 
-Para cambiar de modo: `dsh.sessions` en `config.json` y reiniciar el puente.
+Para cambiar de modo: `harness.sessions` en `config.json` y reiniciar el puente.
 
 El overlay del host móvil también copia `agent-default-model` del perfil `desktop`, así el teléfono usa el mismo proveedor/modelo que la app. Si el perfil `desktop` no lo define, configurá el modelo en Ajustes → Modelos desde el teléfono.
 
@@ -135,13 +170,14 @@ El overlay del host móvil también copia `agent-default-model` del perfil `desk
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | `spawn EPERM` en el panel | El proceso corre dentro de un sandbox que bloquea `spawn` | Ejecutá el puente fuera del sandbox (o con acceso completo) |
-| `EADDRINUSE` al arrancar | Otro proceso usa 8443/8444 | Cambiá `listen.port` |
+| `EADDRINUSE` al arrancar | Otro proceso usa 8443/8444 | Cambiá `server.lan.port` |
 | El teléfono no conecta | Firewall / otra red / IP incorrecta | Regla de firewall Privada; verificá la IP en el panel |
 | Advertencia de certificado | CA no instalada o IP cambió | Instalá la CA; si cambió la IP, reiniciá y re‑emparejá |
 | 401 en el teléfono | Dispositivo revocado o cookie de otro host | Volvé a emparejar |
-| 503 en `/api/*` | Conexión desactivada o host arrancando | Activá y esperá el estado `active` |
+| 503 en `/api/*` o `harness-inactive` en el panel | Conexión desactivada o host arrancando | Activá y esperá el estado `active` |
 | UI en blanco | Proxy sin upstream o versión incompatible | Mirá `logs\bridge.log`; verificá `dsh --version` |
 | La sesión no abre / “already in use” | La sesión está viva en otro proceso (app de escritorio) | Con `isolated` no pasa; con `shared`, cerrá esa sesión en escritorio o usá otra |
+| `config.json inválido` al arrancar | Clave desconocida o mezcla v1/v2 | Corregí según el mensaje, o restaurá `config.v1.json` |
 | QR vencido | TTL 5 min | Generá uno nuevo |
 | “Demasiados intentos” | Rate limit | Esperá un minuto |
 

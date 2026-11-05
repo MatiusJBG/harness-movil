@@ -145,6 +145,7 @@ El puente también copia la fila `agent-default-model` del perfil `desktop` al o
 
 ## Panel de la PC (`http://127.0.0.1:8444/_hm/`)
 
+- El panel consume la API v1 (`/_hm/api/v1/*`) con errores uniformes `{ error: { code, message } }`.
 - QR y código de emparejamiento (se renueva solo; botón **Generar código nuevo**).
 - Activar/desactivar la conexión.
 - Estado, puerto interno, uptime, certificado y diagnóstico.
@@ -156,22 +157,35 @@ El listener de administración escucha solo en `127.0.0.1`; no se expone a la re
 
 | Campo | Default | Descripción |
 |---|---|---|
-| `listen.host` | `auto` | IPv4 LAN a exponer (`auto` elige Wi‑Fi/Ethernet). Debe ser una IP literal o `auto`. |
-| `listen.port` | `8443` | Puerto HTTPS de la LAN. |
-| `listen.adminPort` | `port + 1` | Puerto HTTP del panel, solo loopback. |
-| `publicHost` | `null` | Nombre DNS opcional para el certificado y las URLs. |
-| `dsh.command` | `auto` | `auto` busca `dsh` en PATH y luego el CLI de la app de escritorio. |
-| `dsh.profile` | `mobile` | Perfil de Harness que arranca el puente (se crea desde la plantilla `web`). |
-| `dsh.home` | `null` | `$DSH_HOME` a usar; `null` = `DSH_HOME` del entorno o `~/.dsh`. |
-| `dsh.sessions` | `isolated` | `isolated`: historial propio en `$DSH_HOME/sessions-mobile` (sin choques con escritorio). `shared`: usa `$DSH_HOME/sessions` y exige cerrar la sesión en escritorio. |
-| `dsh.extraArgs` | `[]` | Argumentos extra para `dsh web`. |
-| `dsh.startTimeoutMs` | `90000` | Espera máxima a que Harness imprima su URL con token. |
+| `schemaVersion` | `2` | Versión del esquema; un archivo v1 se migra solo al arrancar. |
+| `server.lan.host` | `auto` | IPv4 LAN a exponer (`auto` elige Wi‑Fi/Ethernet). IP literal o `auto`. |
+| `server.lan.port` | `8443` | Puerto HTTPS de la LAN. |
+| `server.admin.host` | `127.0.0.1` | Host del panel; solo loopback. |
+| `server.admin.port` | `lan.port + 1` | Puerto HTTP del panel. |
+| `server.publicHost` | `null` | Nombre DNS opcional para el certificado y las URLs. |
+| `harness.command` | `auto` | `auto` busca `dsh` en PATH y luego el CLI de la app de escritorio. |
+| `harness.profile` | `mobile` | Perfil de Harness que arranca el puente (se crea desde la plantilla `web`). |
+| `harness.home` | `null` | `$DSH_HOME` a usar; `null` = `DSH_HOME` del entorno o `~/.dsh`. |
+| `harness.sessions` | `isolated` | `isolated`: historial propio en `$DSH_HOME/sessions-mobile`. `shared`: usa `$DSH_HOME/sessions` y exige cerrar la sesión en escritorio. |
+| `harness.extraArgs` | `[]` | Argumentos extra para `dsh web`. |
+| `harness.startTimeoutMs` | `90000` | Espera máxima a que Harness imprima su URL con token. |
 | `tls.mode` | `local-ca` | `local-ca` genera CA+hoja; `files` usa `certFile`/`keyFile`/`caFile`. |
-| `pairing.codeTtlSeconds` | `300` | Vigencia del código/QR. |
+| `pairing.ticketTtlSeconds` | `300` | Vigencia del código/QR. |
 | `pairing.maxDevices` | `3` | Dispositivos activos simultáneos. |
 | `activation.autoStart` | `false` | Arrancar Harness al iniciar el puente. |
 | `activation.idleAutoOffMinutes` | `30` | Apagado por inactividad; `0` desactiva. |
 | `limits.pairingPerMinute` | `10` | Intentos de emparejamiento por IP y minuto. |
+| `limits.maxBodyBytes` | `1048576` | Tamaño máximo de los cuerpos JSON del panel. |
+
+Al arrancar, un `config.json` v1 se **migra a v2**, se respalda como `config.v1.json` y se reescribe
+de forma atómica. Para validar o migrar sin arrancar los servidores:
+
+```powershell
+npm start -- --check-config
+```
+
+`devices.json` (solo hashes) y la CA instalada en el teléfono **no cambian**: no hace falta
+re-emparejar ni reinstalar el certificado.
 
 ## Seguridad
 
@@ -187,7 +201,8 @@ El listener de administración escucha solo en `127.0.0.1`; no se expone a la re
 - Si la IP LAN cambia, el certificado y la URL cambian; volvé a emparejar (la cookie es host‑only).
   Para evitarlo, fijá una IP reservada en el router o usá `publicHost` con DNS local.
 
-Más detalle: [SECURITY.md](docs/SECURITY.md), [RUNBOOK.md](docs/RUNBOOK.md).
+Más detalle: [SECURITY.md](docs/SECURITY.md), [RUNBOOK.md](docs/RUNBOOK.md),
+[ADR 0002 — Clean Architecture y SOLID](docs/adr/0002-arquitectura-limpia-y-solid.md).
 
 ## Firewall y arranque automático
 
@@ -204,17 +219,21 @@ Opcional: `scripts\start-hidden.vbs` arranca el puente sin ventana de consola.
 ## Pruebas y métricas
 
 ```powershell
-npm test            # compila pruebas y ejecuta node:test
+npm run verify      # typecheck + lint + arch + pruebas (gate completo)
+npm test            # compila y ejecuta node:test (antes valida la arquitectura)
 npm run test:coverage
 npm run dup         # jscpd: duplicación
-npm run metrics     # ambas
+npm run metrics:new -- --base=main   # cobertura de código nuevo + duplicación nueva
 ```
 
-- 98 pruebas (unitarias + integración con upstream falso HTTP/WS + router completo).
-- Cobertura del código fuente: **90.7 % de líneas, 80.7 % de ramas y 90.8 % de funciones** (reporte de Node con `--experimental-test-coverage`).
+- 149 pruebas: dominio puro, casos de uso con dobles, contratos de adaptadores, migración de
+  configuración, integración HTTP/WS con upstream falso y arquitectura en banda.
+- Cobertura del código fuente: **95.3 % de líneas, 86.8 % de ramas y 93.3 % de funciones**
+  (Node con `--experimental-test-coverage`; umbral 85/65/80).
 - Duplicación (jscpd, `minLines 5`, `minTokens 50`): **0 %**.
-- Android: **9 pruebas JVM** (gradlew testDebugUnitTest); el wrapper no tiene cobertura instrumentada (validación E2E manual en emulador).
-- Duplicación Java (jscpd): **0 %** (4 archivos, 762 líneas).
+- Arquitectura: **0 violaciones** de la regla de dependencia (dependency-cruiser, 98 módulos).
+- Android: **39 pruebas JVM** (gradlew testDebugUnitTest); el wrapper no tiene cobertura
+  instrumentada (validación E2E manual en emulador).
 
 El runner es `node:test` con un shim mínimo compatible con la API de Vitest
 (`apps/bridge/tests/helpers/testkit.ts`). Motivo: el sandbox de archivos de DeepSeek Harness
@@ -225,22 +244,19 @@ solo proceso sin hijos.
 
 ```
 apps/bridge/
-  src/config.ts        configuración validada y resolución de LAN/puertos
-  src/tls.ts           CA local + certificado con SAN de IP/hostname
-  src/devices.ts       registro de dispositivos (hash, revocación)
-  src/pairing.ts       tickets de un solo uso (código + secreto QR)
-  src/dsh.ts           detección del CLI, spawn, parseo del token, parada en árbol
-  src/jar.ts           intercambio del token y cookie jar de Harness (memoria)
-  src/activation.ts    estados inactive/starting/active/stopping/error + idle
-  src/proxy.ts         proxy HTTP/WS raíz (Host/Origin/cookies)
-  src/auth.ts          cookies, same-origin, CSRF, rate limit, body
-  src/dashboard.ts     panel /_hm y sus endpoints
-  src/http.ts          router: dashboard, gates y proxy
-  src/main.ts          servidores LAN (HTTPS) y admin (HTTP loopback), QR, shutdown
-  public/              panel (HTML/CSS/JS sin build)
-  tests/               98 pruebas + upstream falso + shim node:test
-scripts/               firewall, tarea de inicio, lanzador oculto, build-apk
-docs/                  seguridad, runbook y ADR
+  src/domain/          reglas puras: dispositivo, ticket, activación, arranque, TLS
+  src/application/     puertos y casos de uso (emparejar, revocar, activar, estado)
+  src/adapters/        persistencia JSON, crypto/forge, supervisor de dsh, HTTP, logging
+  src/config/          esquema v2, migración v1→v2 y resolución de red
+  src/composition/     raíz de composición (única que conoce implementaciones)
+  src/cli/             argumentos y ayuda
+  src/main.ts          entry: listeners, banner/QR y apagado ordenado
+  public/index.html    panel (módulos ES, sin build)
+  public/js/api-client.js  cliente de la API v1 (CSRF + errores uniformes)
+  public/js/main.js        estado y eventos del panel
+  tests/               dominio, aplicación, contratos, HTTP/WS, config y arquitectura
+scripts/               firewall, tarea de inicio, lanzador oculto, build-apk, métricas
+docs/                  seguridad, runbook y ADRs (0001–0003)
 android/               app Android (WebView nativo, QR, pinning de certificado)
 ```
 
