@@ -27,6 +27,13 @@ const DshSchema = z
     profile: z.string().min(1).default(DEFAULT_PROFILE),
     /** Null means `$DSH_HOME`, then `~/.dsh`. */
     home: z.string().min(1).nullable().default(null),
+    /**
+     * `isolated` gives the mobile host its own session log directory, so it never
+     * fights the desktop app for the one-writer lock of a live session.
+     * `shared` reuses `$DSH_HOME/sessions` and requires closing a session in the
+     * desktop app before opening it on the phone.
+     */
+    sessions: z.enum(['isolated', 'shared']).default('isolated'),
     extraArgs: z.array(z.string()).default([]),
     startTimeoutMs: z.number().int().min(5_000).max(300_000).default(90_000),
   })
@@ -153,9 +160,6 @@ export function pickLanAddress(
 }
 
 function resolveBindHost(config: AppConfig, env: NodeJS.ProcessEnv): { bindHost: string; lanHost: string } {
-  if (config.publicHost && isIP(config.publicHost) === 4) {
-    return { bindHost: config.publicHost, lanHost: config.publicHost }
-  }
   if (config.listen.host !== 'auto') {
     const literal = isIP(config.listen.host)
     if (literal === 0) {

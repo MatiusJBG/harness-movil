@@ -309,6 +309,7 @@ describe('bridge router', () => {
     await vi.waitFor(async () => {
       const status = await bridge.call('lan', '/_hm/api/status', { cookie })
       expect(status.json.state).toBe('active')
+      expect(status.json.sessions).toMatchObject({ mode: 'isolated' })
     })
 
     const echo = await bridge.call('lan', '/api/echo', { cookie })

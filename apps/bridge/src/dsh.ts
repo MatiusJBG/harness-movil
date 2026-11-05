@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
@@ -95,14 +96,82 @@ export interface BuildDshArgsOptions {
   publicUrl: string
   extraArgs: string[]
   profileExists: boolean
+  patches?: string[]
 }
 
 export function buildDshArgs(options: BuildDshArgsOptions): string[] {
   const args: string[] = [options.profile]
   if (!options.profileExists) args.push('--from-default-profile', 'web')
+  for (const patch of options.patches ?? []) args.push('--patch', patch)
   args.push('--no-open', '--host', '127.0.0.1', '--port', String(options.port), '--public-url', options.publicUrl)
   args.push(...options.extraArgs)
   return args
+}
+
+export const OVERLAY_PATCH_FILE = 'mobile-overlay.patch.yml'
+
+/**
+ * The mobile host must not share the JSONL session root with the desktop app:
+ * both processes would take the single-writer kernel lock of the same session
+ * (`session/writer-held`), which surfaces in the UI as "This session is already
+ * in use...". Patching the `session-persistence-jsonl` row gives the phone its
+ * own append-only logs under `$DSH_HOME/sessions-mobile`.
+ */
+export function buildSessionsPatch(): string {
+  return [
+    '# Aisla el log de sesiones del host movil del que usa la app de escritorio.',
+    '- id: session-persistence-jsonl',
+    '  config:',
+    "    root: !!js dshHomePath('sessions-mobile')",
+  ].join('\n')
+}
+
+/**
+ * Extracts the desktop profile's `agent-default-model` row verbatim so the
+ * phone uses the same provider/model the user already has working in the app.
+ * Without it the web profile may fall back to an API-key route with no valid key.
+ */
+export function extractAgentDefaultModel(patchText: string): string | null {
+  const lines = patchText.split(/\r?\n/)
+  const start = lines.findIndex((line) => /^- id:\s*agent-default-model\s*$/.test(line))
+  if (start === -1) return null
+  let end = lines.length
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^-\s/.test(lines[index]!)) {
+      end = index
+      break
+    }
+  }
+  const block = lines.slice(start, end).join('\n').trimEnd()
+  return block === '' ? null : block
+}
+
+async function readDesktopModelBlock(config: ResolvedConfig): Promise<string | null> {
+  const file = join(config.dshHome, 'profiles', 'desktop', 'cordis.patch.yml')
+  if (!existsSync(file)) return null
+  try {
+    return extractAgentDefaultModel(await readFile(file, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Writes the overlay applied with `--patch`: isolated sessions (unless shared)
+ * plus the desktop's default model row when available.
+ */
+export async function ensureOverlayPatch(config: ResolvedConfig): Promise<string | null> {
+  const parts: string[] = []
+  if (config.config.dsh.sessions !== 'shared') parts.push(buildSessionsPatch())
+  const model = await readDesktopModelBlock(config)
+  if (model) parts.push(model)
+  if (parts.length === 0) return null
+
+  const file = join(config.dataDir, OVERLAY_PATCH_FILE)
+  await mkdir(config.dataDir, { recursive: true })
+  const content = ['# Generado por Harness Movil. No editar a mano.', '', ...parts, ''].join('\n')
+  await writeFile(file, content, 'utf8')
+  return file
 }
 
 function quoteWindowsArg(value: string): string {
@@ -185,6 +254,7 @@ export class DshSupervisor {
     const command = resolveDshCommand(config, this.env)
     const profileDir = join(config.dshHome, 'profiles', config.config.dsh.profile)
     const port = await this.findPort()
+    const sessionsPatch = await ensureOverlayPatch(config)
     const args = buildDshArgs({
       profile: config.config.dsh.profile,
       profileDir,
@@ -192,10 +262,15 @@ export class DshSupervisor {
       publicUrl: config.publicUrl,
       extraArgs: config.config.dsh.extraArgs,
       profileExists: existsSync(profileDir),
+      patches: sessionsPatch ? [sessionsPatch] : [],
     })
     const spawnCommand = toSpawnCommand(command, args)
 
-    shellLogger.info('arrancando host Harness', { command, profile: config.config.dsh.profile })
+    shellLogger.info('arrancando host Harness', {
+      command,
+      profile: config.config.dsh.profile,
+      sessions: config.config.dsh.sessions,
+    })
 
     return await new Promise<DshStartInfo>((resolve, reject) => {
       let settled = false

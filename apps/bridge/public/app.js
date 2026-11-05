@@ -168,6 +168,17 @@ function renderConnection(activationState, status) {
   } else {
     activationError.hidden = true
   }
+
+  const sessions = $('sessions-detail')
+  if (status && status.sessions) {
+    sessions.hidden = false
+    sessions.textContent =
+      status.sessions.mode === 'shared'
+        ? 'Sesiones compartidas con la app de escritorio: cerrá una sesión en escritorio antes de abrirla en el teléfono.'
+        : 'El teléfono usa un historial de sesiones propio y aislado, así no choca con la app de escritorio.'
+  } else {
+    sessions.hidden = true
+  }
 }
 
 function renderDevices(session) {

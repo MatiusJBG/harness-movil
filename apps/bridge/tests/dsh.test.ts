@@ -1,11 +1,15 @@
 import { EventEmitter } from 'node:events'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from './helpers/testkit.js'
 import {
   DshStartError,
   DshSupervisor,
+  OVERLAY_PATCH_FILE,
   buildDshArgs,
+  buildSessionsPatch,
+  ensureOverlayPatch,
+  extractAgentDefaultModel,
   parseToken,
   resolveDshCommand,
   toSpawnCommand,
@@ -30,11 +34,13 @@ function fakeConfig(command: string): ResolvedConfig {
   return {
     publicUrl: 'https://192.168.1.44:8443/',
     dshHome: 'C:\\dsh',
+    dataDir: 'C:\\data',
     config: {
       dsh: {
         command,
         profile: 'mobile',
         home: null,
+        sessions: 'isolated',
         extraArgs: [],
         startTimeoutMs: 90_000,
       },
@@ -75,6 +81,7 @@ describe('buildDshArgs', () => {
       publicUrl: 'https://192.168.1.44:8443/',
       extraArgs: ['--verbose'],
       profileExists: true,
+      patches: ['C:\\data\\sessions-mobile.patch.yml'],
     })
     expect(args[0]).toBe('mobile')
     expect(args).not.toContain('--from-default-profile')
@@ -83,6 +90,8 @@ describe('buildDshArgs', () => {
     expect(args).toContain('4567')
     expect(args).toContain('--public-url')
     expect(args).toContain('https://192.168.1.44:8443/')
+    expect(args).toContain('--patch')
+    expect(args).toContain('C:\\data\\sessions-mobile.patch.yml')
     expect(args.at(-1)).toBe('--verbose')
   })
 
@@ -158,6 +167,68 @@ describe('toSpawnCommand', () => {
   })
 })
 
+const MODEL_BLOCK = [
+  '- id: agent-default-model',
+  '  name: "@deepseek-ai/dsh-agent-default-model"',
+  '  config:',
+  '    provider: deepseek-account',
+  '    model: deepseek-flash',
+  '    reasoningEffort: high',
+].join('\n')
+
+async function writeDesktopPatch(dir: string): Promise<void> {
+  const folder = join(dir, 'profiles', 'desktop')
+  await mkdir(folder, { recursive: true })
+  await writeFile(join(folder, 'cordis.patch.yml'), `${MODEL_BLOCK}\n`, 'utf8')
+}
+
+describe('extractAgentDefaultModel', () => {
+  it('copies the agent-default-model row verbatim and stops at the next entry', () => {
+    expect(extractAgentDefaultModel(`${MODEL_BLOCK}\n- id: other\n  name: x\n`)).toBe(MODEL_BLOCK)
+    expect(extractAgentDefaultModel('[]')).toBeNull()
+  })
+})
+
+describe('ensureOverlayPatch', () => {
+  it('isolates the session root and mirrors the desktop default model', async () => {
+    const dir = await tempDir('patch-')
+    const config = fakeConfig('dsh')
+    ;(config as unknown as { dataDir: string }).dataDir = dir
+    ;(config as unknown as { dshHome: string }).dshHome = dir
+    await writeDesktopPatch(dir)
+
+    const file = await ensureOverlayPatch(config)
+    expect(file).toBe(join(dir, OVERLAY_PATCH_FILE))
+    const content = await readFile(file!, 'utf8')
+    expect(content).toContain(buildSessionsPatch())
+    expect(content).toContain('agent-default-model')
+    expect(content).toContain('provider: deepseek-account')
+  })
+
+  it('still mirrors the model when sessions are shared', async () => {
+    const dir = await tempDir('patch-shared-')
+    const config = fakeConfig('dsh')
+    ;(config as unknown as { dataDir: string }).dataDir = dir
+    ;(config as unknown as { dshHome: string }).dshHome = dir
+    ;(config as unknown as { config: { dsh: { sessions: string } } }).config.dsh.sessions = 'shared'
+    await writeDesktopPatch(dir)
+
+    const file = await ensureOverlayPatch(config)
+    const content = await readFile(file!, 'utf8')
+    expect(content).toContain('agent-default-model')
+    expect(content).not.toContain('sessions-mobile')
+  })
+
+  it('returns null when there is nothing to overlay', async () => {
+    const dir = await tempDir('patch-empty-')
+    const config = fakeConfig('dsh')
+    ;(config as unknown as { dataDir: string }).dataDir = dir
+    ;(config as unknown as { dshHome: string }).dshHome = dir
+    ;(config as unknown as { config: { dsh: { sessions: string } } }).config.dsh.sessions = 'shared'
+    expect(await ensureOverlayPatch(config)).toBeNull()
+  })
+})
+
 describe('DshSupervisor', () => {
   it('uses a reserved loopback port and reads the token from the advertised URL', async () => {
     const dir = await tempDir('supervisor-')
@@ -165,6 +236,7 @@ describe('DshSupervisor', () => {
     await writeFile(executable, '')
     const config = fakeConfig(executable)
     ;(config as unknown as { dshHome: string }).dshHome = dir
+    ;(config as unknown as { dataDir: string }).dataDir = dir
     let captured: { file: string; args: string[]; options: { env: NodeJS.ProcessEnv } } | null = null
     let child: FakeChild | null = null
     const supervisor = new DshSupervisor({
@@ -197,6 +269,10 @@ describe('DshSupervisor', () => {
     expect(supervisor.running()).toBe(true)
     expect(captured!.args).toContain('4567')
     expect(captured!.args).toContain('https://192.168.1.44:8443/')
+    expect(captured!.args).toContain('--patch')
+    const patchPath = join(dir, OVERLAY_PATCH_FILE)
+    expect(captured!.args).toContain(patchPath)
+    expect(await readFile(patchPath, 'utf8')).toContain('sessions-mobile')
     expect(captured!.options.env.DSH_HOME).toBe(dir)
     await supervisor.stop()
     expect(supervisor.running()).toBe(false)

@@ -70,6 +70,7 @@ describe('loadConfig', () => {
     expect(config.adminUrl).toBe('http://127.0.0.1:18444/_hm/')
     expect(config.dshHome).toBe(join(dataDir, 'home'))
     expect(config.config.dsh.profile).toBe('mobile')
+    expect(config.config.dsh.sessions).toBe('isolated')
     expect(config.config.activation.idleAutoOffMinutes).toBe(30)
   })
 

@@ -279,6 +279,7 @@ export async function createDashboard(options: DashboardOptions): Promise<Dashbo
         dshHome: options.config.dshHome,
         profile: options.config.config.dsh.profile,
         command: options.config.config.dsh.command,
+        sessions: options.config.config.dsh.sessions,
         bind: `${options.config.bindHost}:${options.config.port}`,
         admin: `${options.config.adminAuthority}`,
         tls: { notAfter: options.tls.notAfter.toISOString(), sans: options.tls.sans },
@@ -303,6 +304,13 @@ export async function createDashboard(options: DashboardOptions): Promise<Dashbo
         notAfter: options.tls.notAfter.toISOString(),
         fingerprint: options.tls.fingerprint,
         sans: options.tls.sans,
+      },
+      sessions: {
+        mode: options.config.config.dsh.sessions,
+        root: join(
+          options.config.dshHome,
+          options.config.config.dsh.sessions === 'shared' ? 'sessions' : 'sessions-mobile',
+        ),
       },
       pairedDevices: options.devices.activeCount(),
       version: options.version,
