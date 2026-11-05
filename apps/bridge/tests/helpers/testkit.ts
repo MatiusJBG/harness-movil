@@ -90,6 +90,10 @@ class Expectation {
     this._check(this.actual >= expected, `expected ${describeValue(this.actual)} >= ${describeValue(expected)}`)
   }
 
+  toBeLessThan(expected) {
+    this._check(this.actual < expected, `expected ${describeValue(this.actual)} < ${describeValue(expected)}`)
+  }
+
   toHaveLength(expected) {
     this._check(
       this.actual != null && typeof this.actual.length === 'number' && this.actual.length === expected,
