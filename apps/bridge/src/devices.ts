@@ -158,13 +158,15 @@ export class DeviceStore {
     const nowMs = this.now().getTime()
     if (!force && nowMs - this.lastPersistAt < PERSIST_INTERVAL_MS) return
     this.lastPersistAt = nowMs
-    this.persistChain = this.persistChain.then(async () => {
-      await mkdir(dirname(this.file), { recursive: true })
-      const payload = JSON.stringify({ version: 1, devices: this.records }, null, 2)
-      const temp = `${this.file}.tmp`
-      await writeFile(temp, `${payload}\n`, 'utf8')
-      await rename(temp, this.file)
-    })
+    this.persistChain = this.persistChain
+      .catch(() => undefined)
+      .then(async () => {
+        await mkdir(dirname(this.file), { recursive: true })
+        const payload = JSON.stringify({ version: 1, devices: this.records }, null, 2)
+        const temp = `${this.file}.tmp`
+        await writeFile(temp, `${payload}\n`, 'utf8')
+        await rename(temp, this.file)
+      })
     await this.persistChain
   }
 }
