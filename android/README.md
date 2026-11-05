@@ -93,8 +93,10 @@ La primera compilación descarga Gradle y las dependencias de AndroidX/Material/
 ```powershell
 cd android
 .\\gradlew.bat testDebugUnitTest
-```n
-9 pruebas JVM de ServerStore (normalización de URL, host key, QR y deep link). La UI WebView se validó
+```
+39 pruebas JVM: las 9 de contrato del flujo de servidor (normalización de URL, host key, QR y deep link)
+repartidas entre `ConnectionUrl`, `PairTarget` y `ServerStoreTest`, más 30 pruebas nuevas de esos objetos de
+valor y de `CertificatePin`. La UI WebView se validó
 en un emulador Android 15: instalar, emparejar por QR, activar y abrir la UI oficial. El wrapper no tiene
 cobertura instrumentada (JaCoCo); esa métrica corresponde al puente Node.
 
@@ -106,7 +108,10 @@ android/
     MainActivity.java      WebView, menú, archivos, descargas, atrás
     SetupActivity.java     URL/QR, huella, olvidar certificado
     SslTrust.java          TOFU + diálogo de huella SHA-256
-    ServerStore.java       URL base, host key y huella persistidas
+    ConnectionUrl.java     VO de la URL base https (normalización y host key)
+    CertificatePin.java    VO de la huella SHA-256 (formato y comparación)
+    PairTarget.java        VO del QR/deep link (URL base + URL inicial)
+    ServerStore.java       persistencia de URL base y huella
   app/src/main/res/        layouts, tema, strings, ícono adaptativo
   gradle/ + gradlew*       wrapper 8.9
 ```

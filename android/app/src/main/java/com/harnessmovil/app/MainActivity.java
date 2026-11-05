@@ -63,11 +63,11 @@ public class MainActivity extends AppCompatActivity {
         sslTrust = new SslTrust(this, store);
 
         String initialUrl = getIntent().getStringExtra(EXTRA_INITIAL_URL);
-        ServerStore.PairInfo deepLink = ServerStore.parseDeepLink(
+        PairTarget deepLink = PairTarget.parseDeepLink(
                 getIntent().getData() == null ? null : getIntent().getData().toString());
         if (deepLink != null) {
-            store.setBaseUrl(deepLink.baseUrl);
-            initialUrl = deepLink.initialUrl;
+            store.setBaseUrl(deepLink.baseUrl());
+            initialUrl = deepLink.initialUrl();
         }
 
         if (store.baseUrl() == null && initialUrl == null) {
@@ -319,12 +319,12 @@ public class MainActivity extends AppCompatActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        ServerStore.PairInfo deepLink = ServerStore.parseDeepLink(
+        PairTarget deepLink = PairTarget.parseDeepLink(
                 intent.getData() == null ? null : intent.getData().toString());
         if (deepLink != null) {
-            store.setBaseUrl(deepLink.baseUrl);
-            loadedBase = deepLink.baseUrl;
-            webView.loadUrl(deepLink.initialUrl);
+            store.setBaseUrl(deepLink.baseUrl());
+            loadedBase = deepLink.baseUrl();
+            webView.loadUrl(deepLink.initialUrl());
             return;
         }
         String initial = intent.getStringExtra(EXTRA_INITIAL_URL);

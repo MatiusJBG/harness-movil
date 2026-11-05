@@ -43,13 +43,13 @@ public class SetupActivity extends AppCompatActivity {
 
         scanLauncher = registerForActivityResult(new ScanContract(), result -> {
             if (result.getContents() == null) return;
-            ServerStore.PairInfo info = ServerStore.parseBridgeQr(result.getContents());
-            if (info == null) {
+            PairTarget target = PairTarget.parseBridgeQr(result.getContents());
+            if (target == null) {
                 serverLayout.setError(getString(R.string.error_qr));
                 return;
             }
-            store.setBaseUrl(info.baseUrl);
-            startMain(info.initialUrl);
+            store.setBaseUrl(target.baseUrl());
+            startMain(target.initialUrl());
         });
 
         MaterialButton scan = findViewById(R.id.scan_qr);
@@ -107,7 +107,7 @@ public class SetupActivity extends AppCompatActivity {
         serverLayout.setError(null);
         String raw = serverUrl.getText() == null ? "" : serverUrl.getText().toString();
         try {
-            String base = ServerStore.normalizeBase(raw);
+            String base = ConnectionUrl.normalize(raw);
             store.setBaseUrl(base);
             startMain(base + "/");
         } catch (IllegalArgumentException error) {

@@ -6,9 +6,7 @@ import android.webkit.SslErrorHandler;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
-import java.security.MessageDigest;
 import java.security.cert.X509Certificate;
-import java.util.Locale;
 
 /** Trust-on-first-use para el certificado autofirmado del puente. */
 public final class SslTrust {
@@ -23,22 +21,23 @@ public final class SslTrust {
     }
 
     public void handle(SslErrorHandler handler, SslError error) {
-        String hostKey = ServerStore.hostKeyFromUrl(error.getUrl());
-        String expected = ServerStore.hostKey(store.baseUrl() == null ? "" : store.baseUrl());
+        String hostKey = ConnectionUrl.hostKeyFromUrl(error.getUrl());
+        String expected = ConnectionUrl.hostKeyOf(store.baseUrl());
         if (hostKey.isEmpty() || expected.isEmpty() || !hostKey.equals(expected)) {
             handler.cancel();
             return;
         }
 
-        String fingerprint = fingerprintOf(error);
-        if (fingerprint == null) {
+        CertificatePin pin = CertificatePin.fromCertificate(certificateOf(error));
+        if (pin == null) {
             handler.cancel();
             return;
         }
 
         String stored = store.fingerprint();
         boolean sameHost = hostKey.equals(store.fingerprintHost());
-        if (stored != null && sameHost && stored.equalsIgnoreCase(fingerprint)) {
+        CertificatePin storedPin = CertificatePin.parse(stored);
+        if (storedPin != null && sameHost && storedPin.matches(pin)) {
             handler.proceed();
             return;
         }
@@ -48,11 +47,11 @@ public final class SslTrust {
         }
 
         dialogShowing = true;
-        boolean changed = stored != null && sameHost && !stored.equalsIgnoreCase(fingerprint);
+        boolean changed = sameHost && CertificatePin.changed(stored, pin);
         String message = changed
                 ? activity.getString(R.string.cert_changed) + "\n\n" + activity.getString(
-                        R.string.cert_message, hostKey, format(fingerprint))
-                : activity.getString(R.string.cert_message, hostKey, format(fingerprint));
+                        R.string.cert_message, hostKey, pin.formatted())
+                : activity.getString(R.string.cert_message, hostKey, pin.formatted());
 
         new MaterialAlertDialogBuilder(activity)
                 .setTitle(R.string.cert_title)
@@ -60,7 +59,7 @@ public final class SslTrust {
                 .setCancelable(false)
                 .setPositiveButton(R.string.cert_trust, (dialog, which) -> {
                     dialogShowing = false;
-                    store.saveFingerprint(hostKey, fingerprint);
+                    store.saveFingerprint(hostKey, pin.formatted());
                     handler.proceed();
                 })
                 .setNegativeButton(R.string.cert_reject, (dialog, which) -> {
@@ -70,24 +69,12 @@ public final class SslTrust {
                 .show();
     }
 
-    private static String fingerprintOf(SslError error) {
+    private static X509Certificate certificateOf(SslError error) {
         try {
-            X509Certificate certificate = error.getCertificate().getX509Certificate();
-            if (certificate == null) return null;
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] bytes = digest.digest(certificate.getEncoded());
-            StringBuilder builder = new StringBuilder(bytes.length * 3);
-            for (int index = 0; index < bytes.length; index++) {
-                if (index > 0) builder.append(':');
-                builder.append(String.format(Locale.ROOT, "%02X", bytes[index]));
-            }
-            return builder.toString();
+            if (error.getCertificate() == null) return null;
+            return error.getCertificate().getX509Certificate();
         } catch (Exception error2) {
             return null;
         }
-    }
-
-    private static String format(String fingerprint) {
-        return fingerprint;
     }
 }
