@@ -141,6 +141,51 @@ describe('configuración v2', () => {
     })
   })
 
+  it('rechaza un admin host fuera de loopback con ConfigError accionable', async () => {
+    await withDir(async (dir) => {
+      await writeFile(join(dir, 'config.json'), JSON.stringify({ schemaVersion: 2, server: { admin: { host: '0.0.0.0' } } }), 'utf8')
+      try {
+        await loadSettings({ dataDir: dir, env: {}, interfaces })
+        throw new Error('debía fallar')
+      } catch (error) {
+        expect(error).toBeInstanceOf(ConfigError)
+        expect((error as ConfigError).code).toBe('config-invalid')
+        expect(String((error as Error).message)).toContain('server.admin.host')
+      }
+    })
+  })
+
+  it('falla con claves desconocidas anidadas al migrar v1', async () => {
+    const cases = [
+      { legacy: { listen: { host: '127.0.0.1', adminHost: '0.0.0.0' } }, path: 'listen.adminHost' },
+      { legacy: { dsh: { profile: 'mobile', foo: true } }, path: 'dsh.foo' },
+      { legacy: { pairing: { maxDevices: 2, extra: 1 } }, path: 'pairing.extra' },
+    ]
+    for (const entry of cases) {
+      await withDir(async (dir) => {
+        await writeFile(join(dir, 'config.json'), JSON.stringify(entry.legacy), 'utf8')
+        try {
+          await loadSettings({ dataDir: dir, env: {}, interfaces })
+          throw new Error('debía fallar')
+        } catch (error) {
+          expect(error).toBeInstanceOf(ConfigError)
+          expect((error as ConfigError).code).toBe('config-unknown-keys')
+          expect(String((error as Error).message)).toContain(entry.path)
+        }
+        expect(existsSync(join(dir, 'config.v1.json'))).toBe(false)
+      })
+    }
+  })
+
+  it('--check-config no crea el directorio de datos', async () => {
+    await withDir(async (dir) => {
+      const target = join(dir, 'no-crear')
+      const loaded = await loadSettings({ dataDir: target, env: {}, interfaces, readOnly: true })
+      expect(loaded.migrated).toBe(true)
+      expect(existsSync(target)).toBe(false)
+    })
+  })
+
   it('el esquema por defecto es válido y estricto', () => {
     expect(defaultConfig().schemaVersion).toBe(2)
     expect(ConfigSchema.safeParse({ schemaVersion: 2, extra: true }).success).toBe(false)

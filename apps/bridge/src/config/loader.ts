@@ -38,7 +38,6 @@ interface RawConfigFile {
 export async function loadSettings(options: LoadSettingsOptions = {}): Promise<LoadedSettings> {
   const env = options.env ?? process.env
   const dataDir = options.dataDir ?? defaultDataDir(env)
-  await mkdir(dataDir, { recursive: true })
   const configFile = join(dataDir, 'config.json')
 
   const original = await readConfigFile(configFile)
@@ -104,6 +103,7 @@ async function persistIfNeeded(input: {
   readOnly: boolean
 }): Promise<string | null> {
   if (input.readOnly || (input.text !== null && !input.migrated)) return null
+  await mkdir(input.dataDir, { recursive: true })
   let backupFile: string | null = null
   if (input.text !== null) {
     backupFile = join(input.dataDir, 'config.v1.json')

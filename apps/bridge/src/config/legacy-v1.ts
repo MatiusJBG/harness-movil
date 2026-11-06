@@ -1,6 +1,9 @@
 import { ConfigError } from './errors.js'
 
 const LEGACY_KEYS = new Set(['listen', 'dsh', 'tls', 'pairing', 'activation', 'limits', 'publicHost'])
+const LISTEN_KEYS = new Set(['host', 'port', 'adminPort'])
+const DSH_KEYS = new Set(['command', 'profile', 'home', 'sessions', 'extraArgs', 'startTimeoutMs'])
+const PAIRING_KEYS = new Set(['codeTtlSeconds', 'maxDevices'])
 
 /** ¿El archivo es un config v1 (sin `schemaVersion` y con claves del formato viejo)? */
 export function isLegacyV1(raw: unknown): raw is Record<string, unknown> {
@@ -15,10 +18,13 @@ export function isLegacyV1(raw: unknown): raw is Record<string, unknown> {
  * claves, de modo que un valor inválido siga señalando la ruta exacta.
  */
 export function migrateLegacyV1(raw: Record<string, unknown>): Record<string, unknown> {
-  assertKnownKeys(raw)
+  assertKnownKeys(raw, LEGACY_KEYS)
   const listen = asRecord(raw.listen, 'listen')
   const dsh = asRecord(raw.dsh, 'dsh')
   const pairing = asRecord(raw.pairing, 'pairing')
+  assertKnownKeys(listen, LISTEN_KEYS, 'listen')
+  assertKnownKeys(dsh, DSH_KEYS, 'dsh')
+  assertKnownKeys(pairing, PAIRING_KEYS, 'pairing')
   return {
     schemaVersion: 2,
     server: migrateServer(listen, raw.publicHost),
@@ -30,11 +36,13 @@ export function migrateLegacyV1(raw: Record<string, unknown>): Record<string, un
   }
 }
 
-function assertKnownKeys(raw: Record<string, unknown>): void {
-  const unknown = Object.keys(raw).filter((key) => !LEGACY_KEYS.has(key))
+/** Las claves desconocidas fallan (nunca se descartan en silencio), también anidadas. */
+function assertKnownKeys(raw: Record<string, unknown>, allowed: ReadonlySet<string>, prefix = ''): void {
+  const unknown = Object.keys(raw).filter((key) => !allowed.has(key))
   if (unknown.length === 0) return
+  const path = prefix === '' ? '' : `${prefix}.`
   throw new ConfigError(
-    `config.json v1 tiene claves desconocidas: ${unknown.join(', ')}. Revisá el formato en el README.`,
+    `config.json v1 tiene claves desconocidas: ${unknown.map((key) => `${path}${key}`).join(', ')}. Revisá el formato en el README.`,
     'config-unknown-keys',
   )
 }
