@@ -11,9 +11,10 @@ npm start
 
 Verificá que DeepSeek Harness esté instalado. El puente lo detecta en este orden:
 
-1. `dsh` en `PATH`.
-2. `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`.
-3. `harness.command` de `config.json`.
+1. `harness.command` de `config.json` si **no** es `auto` (si no existe ni está en `PATH`, falla con un error accionable).
+2. Con `harness.command: "auto"`, `dsh` en `PATH`.
+3. `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`.
+4. `%ProgramFiles%\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`.
 
 Versión probada: `dsh 0.2.1-rc.3` (runtime Node 24.21, Electron 44.7). El puente no fija la versión;
 si actualizás la app de escritorio, reiniciá el puente.
@@ -25,6 +26,7 @@ La consola muestra:
 ```
 Panel en la PC : http://127.0.0.1:8444/_hm/
 Panel en el tel: https://192.168.x.x:8443/_hm/
+CA (PC)        : http://127.0.0.1:8444/_hm/ca.cer
 CA (teléfono)  : https://192.168.x.x:8443/_hm/ca.cer
 Código         : 123456  (vence en 5 min)
 Emparejar      : https://192.168.x.x:8443/_hm/#p=...

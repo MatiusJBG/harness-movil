@@ -37,19 +37,25 @@ domain  ←  application  ←  adapters / config / cli  ←  composition  ←  m
 - **adapters**: implementaciones concretas (JSON en disco, `node:crypto`, `node-forge`,
   `http-proxy`, `qrcode`, router/controladores/presentadores HTTP, logger, versión).
 - **config**: esquema zod v2, migración v1→v2, resolución de red.
-- **composition**: única raíz que conoce implementaciones; `main` solo CLI, listeners y apagado.
+- **composition**: única raíz que conoce implementaciones (runtime + wiring + listeners); `main` solo CLI, arranque y apagado.
 
 Regla aplicada por **dependency-cruiser** con severidad `error`: `domain-no-exterior`,
 `domain-no-core`, `application-no-exterior`, `application-no-core`,
 `adapters-no-other-family` (solo `adapters/shared` es transversal), `config-no-adapters`,
-`no-circular`, `no-import-main` y `no-orphans`.
+`main-no-adapters` (el entry solo compone), `no-circular`, `no-import-main` y `no-orphans`.
+Nota: `no-orphans` de dependency-cruiser detecta módulos sin dependencias **y** sin dependientes; la
+conectividad de un módulo que sí importa se revisa a mano (no hay regla de exports sin uso).
 
 ### 2. Puertos explícitos en la frontera de aplicación
 
 `Clock`, `Logger`, `DeviceRepository` (`DeviceQueries` + `DeviceMutations`),
 `SecretHasher`, `IdGenerator`, `PairingTicketStore`, `HarnessSupervisor`,
-`SessionCookieStore`, `TlsMaterialProvider`, `RateLimiter`, `ActivationReader` /
+`SessionCookieStore`, `TlsMaterialProvider`, `RateLimiter`, `Scheduler`, `ActivationReader` /
 `ActivationControl` / `ActivityMarker` y `AppSettings` por *slices*.
+
+`Scheduler` vive en `application/ports/scheduler.ts` y es **obligatorio** en `ActivationOptions`:
+la aplicación no usa `setInterval` global. El adaptador real es
+`adapters/runtime/node-scheduler.ts` y lo inyecta composición (los tests, un doble).
 
 El puerto del proxy HTTP/WS vive en `adapters/http/proxy` porque su contrato habla el protocolo de
 Node (`IncomingMessage`, `Duplex`); meterlo en aplicación habría obligado a importar `node:http`
@@ -66,13 +72,16 @@ desde una capa interna. Se documenta como excepción deliberada.
   en un único `error-mapper.ts`.
 - **L**: se eliminaron las uniones y el cast; cada rol tiene **un** puerto. Los tests de contrato
   cubren las implementaciones reales (repositorio JSON, hasher SHA-256, limitador, tickets).
-- **I**: desaparecieron `RouterOptions` (6 colaboradores) y `DashboardOptions` (8);
-  `ResolvedConfig` se partió en `DataPaths`, `NetworkSettings`, `HarnessSettings`,
-  `PairingSettings`, `ActivationSettings`, `LimitsSettings` y `TlsSettings`. La activación se
-  expone como tres interfaces mínimas.
+- **I**: `DashboardOptions` (8) desapareció y `RouterOptions` quedó reducido a cuatro
+  colaboradores (rutas, autenticación, limitador y logger); `ResolvedConfig` se partió en
+  `DataPaths`, `NetworkSettings`, `HarnessSettings`, `PairingSettings`, `ActivationSettings`,
+  `LimitsSettings` y `TlsSettings`. La activación se expone como tres interfaces mínimas.
 - **D**: reloj, logger, hasher, generador de ids, persistencia, supervisor, cookie, TLS, rate
-  limiter y assets entran por puerto; `composition/build-application.ts` es el único que conoce
-  clases concretas. `version.ts` dejó de leer `package.json` desde una capa interna.
+  limiter, scheduler y assets entran por puerto. La composición tiene dos piezas:
+  `composition/build-runtime.ts` (reloj, logger, TLS, versión y SAN del certificado) y
+  `composition/wiring.ts` (grafo de aplicación reutilizable, con overrides para los tests). `main.ts`
+  solo usa `cli`, `composition` y `config/loader`; ya no instancia adaptadores. `version.ts` dejó de
+  leer `package.json` desde una capa interna.
 
 ### 4. Canje de ticket atómico
 
@@ -98,18 +107,37 @@ Los endpoints JSON pasan a `/_hm/api/v1/*` con errores uniformes
 instalado (que no llama a la API JSON). Las rutas v0 se retiraron: su único cliente es el panel que
 sirve el propio puente.
 
+### 6.1 Endurecimiento HTTP
+
+- **Admin solo loopback.** `server.admin.host` acepta únicamente `127.0.0.1` o `::1`; otro valor
+  falla con `ConfigError` (`config-invalid`). Además, el listener admin exige que el pedido venga
+  de loopback y que el `Host` sea el del panel (`127.0.0.1:puerto`, `localhost:puerto`,
+  `[::1]:puerto`), tanto en HTTP como en `upgrade` (DNS rebinding).
+- **Cross-site en el proxy.** Las rutas proxeadas exigen same-origin cuando el pedido trae
+  `Origin` (sin `Origin` se permite: cliente no navegador); el `upgrade` WS aplica la misma
+  comprobación. No se agrega `X-HM-CSRF` al proxy para no romper la UI oficial.
+- **Métodos del proxy.** `GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS` (HEAD se atiende con la fila GET,
+  sin rutas duplicadas). PUT/PATCH/OPTIONS usan los mismos guards que POST.
+- **CSP con alcance de panel.** Las cabeceras de seguridad se aplican solo a `/_hm/*`; las
+  respuestas proxeadas conservan las de Harness.
+- **Robustez.** El parseo de cookies es total (una cookie malformada equivale a no emparejado) y el
+  `upgrade` va envuelto en try/catch para no tumbar el proceso.
+
 ### 7. Pruebas por capa y puertas de calidad
 
-- 149 pruebas: dominio (puro), aplicación con dobles, contratos de adaptadores, configuración
+- 168 pruebas: dominio (puro), aplicación con dobles, contratos de adaptadores, configuración
   (migración incluida), integración HTTP/WS con upstream falso y arquitectura en banda.
 - `npm run verify` = typecheck + lint + arch + tests; `pretest` ejecuta `arch`, de modo que
   ningún `npm test` puede evadir las fronteras.
-- Cobertura: 95.3 % líneas, 86.8 % ramas, 93.3 % funciones (umbral 85/65/80).
-- Duplicación jscpd: 0 % (`--threshold 0`).
+- Cobertura: 87.4 % líneas, 86.2 % ramas, 88.3 % funciones (umbral 85/65/80).
+- Duplicación jscpd: 0 % (`--threshold 0`) sobre `apps`, `android/app/src` y `scripts`, sin tests.
+- `npm run metrics:new` ejecuta primero `test:coverage` y falla si `coverage/lcov.info` no existe,
+  es anterior al commit `HEAD` o no pertenece a este árbol; los archivos cambiados para la
+  duplicación nueva salen de `git diff --name-only base...HEAD` (incluye `public/js` y Java).
 
 ## Consecuencias
 
-- Más archivos (≈60 en `src`) pero cada uno con un propósito único; el grafo se valida en cada
+- Más archivos (93 en `src`) pero cada uno con un propósito único; el grafo se valida en cada
   `npm test`.
 - Los casos de uso se prueban sin red ni disco; la integración queda para HTTP/WS.
 - `npm run metrics:new` entrega cobertura de líneas nuevas y duplicación nueva.
@@ -120,7 +148,7 @@ sirve el propio puente.
 ## Verificación
 
 ```
-npm run verify   # typecheck + lint + arch + 149 tests
+npm run verify   # typecheck + lint + arch + 168 tests
 npm run test:coverage
 npm run dup
 npm run metrics:new -- --base=main
@@ -128,3 +156,8 @@ npm run metrics:new -- --base=main
 
 E2E manual: arranque con un `config.json` v1 real → migración a v2 con `config.v1.json`, panel,
 CA, emparejamiento por código, cookie de dispositivo, `/_hm/api/v1/status` y diagnóstico desde la PC.
+
+## Referencias
+
+- [ADR 0001 — Puente y host dedicado](0001-puente-host-dedicado.md).
+- [ADR 0003 — Android como adaptador delgado](0003-android-adaptador-delgado.md).

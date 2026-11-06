@@ -132,14 +132,15 @@ Si preferís la **misma lista de sesiones** que la app de escritorio, cambiá en
 
 ```json
 {
-  "dsh": { "sessions": "shared" }
+  "schemaVersion": 2,
+  "harness": { "sessions": "shared" }
 }
 ```
 
 y reiniciá el puente. En modo `shared`, una sesión que esté viva en escritorio seguirá bloqueada
 hasta que la cierres ahí; las sesiones frías sí se pueden abrir en el teléfono (y quedan bloqueadas
 para escritorio mientras el host móvil las tenga abiertas). El modo activo se muestra en el panel y
-en `/_hm/api/status`.
+en `/_hm/api/v1/status`.
 
 El puente también copia la fila `agent-default-model` del perfil `desktop` al overlay del host móvil, para que el teléfono use el mismo proveedor/modelo que ya tenés funcionando en la app (por ejemplo `deepseek-account`), en lugar de una ruta de API key sin credencial válida.
 
@@ -151,7 +152,7 @@ El puente también copia la fila `agent-default-model` del perfil `desktop` al o
 - Estado, puerto interno, uptime, certificado y diagnóstico.
 - Dispositivos emparejados y revocación.
 
-El listener de administración escucha solo en `127.0.0.1`; no se expone a la red.
+El listener de administración escucha solo en loopback, exige que el pedido venga de loopback y valida el `Host` del panel (bloquea DNS rebinding); no se expone a la red.
 
 ## Configuración (`config.json`)
 
@@ -160,7 +161,7 @@ El listener de administración escucha solo en `127.0.0.1`; no se expone a la re
 | `schemaVersion` | `2` | Versión del esquema; un archivo v1 se migra solo al arrancar. |
 | `server.lan.host` | `auto` | IPv4 LAN a exponer (`auto` elige Wi‑Fi/Ethernet). IP literal o `auto`. |
 | `server.lan.port` | `8443` | Puerto HTTPS de la LAN. |
-| `server.admin.host` | `127.0.0.1` | Host del panel; solo loopback. |
+| `server.admin.host` | `127.0.0.1` | Host del panel; solo `127.0.0.1` o `::1` (cualquier otro valor falla al validar). |
 | `server.admin.port` | `lan.port + 1` | Puerto HTTP del panel. |
 | `server.publicHost` | `null` | Nombre DNS opcional para el certificado y las URLs. |
 | `harness.command` | `auto` | `auto` busca `dsh` en PATH y luego el CLI de la app de escritorio. |
@@ -202,7 +203,9 @@ re-emparejar ni reinstalar el certificado.
   Para evitarlo, fijá una IP reservada en el router o usá `publicHost` con DNS local.
 
 Más detalle: [SECURITY.md](docs/SECURITY.md), [RUNBOOK.md](docs/RUNBOOK.md),
-[ADR 0002 — Clean Architecture y SOLID](docs/adr/0002-arquitectura-limpia-y-solid.md).
+[ADR 0001 — Puente y host dedicado](docs/adr/0001-puente-host-dedicado.md),
+[ADR 0002 — Clean Architecture y SOLID](docs/adr/0002-arquitectura-limpia-y-solid.md),
+[ADR 0003 — Android como adaptador delgado](docs/adr/0003-android-adaptador-delgado.md).
 
 ## Firewall y arranque automático
 
@@ -221,17 +224,20 @@ Opcional: `scripts\start-hidden.vbs` arranca el puente sin ventana de consola.
 ```powershell
 npm run verify      # typecheck + lint + arch + pruebas (gate completo)
 npm test            # compila y ejecuta node:test (antes valida la arquitectura)
-npm run test:coverage
-npm run dup         # jscpd: duplicación
-npm run metrics:new -- --base=main   # cobertura de código nuevo + duplicación nueva
+npm run test:coverage   # regenera test-dist y coverage/lcov.info
+npm run dup         # jscpd: duplicación (apps + android/app/src + scripts)
+npm run metrics:new -- --base=main   # test:coverage + cobertura nueva + duplicación nueva
 ```
 
-- 149 pruebas: dominio puro, casos de uso con dobles, contratos de adaptadores, migración de
+- 168 pruebas: dominio puro, casos de uso con dobles, contratos de adaptadores, migración de
   configuración, integración HTTP/WS con upstream falso y arquitectura en banda.
-- Cobertura del código fuente: **95.3 % de líneas, 86.8 % de ramas y 93.3 % de funciones**
+- Cobertura del código fuente: **87.4 % de líneas, 86.2 % de ramas y 88.3 % de funciones**
   (Node con `--experimental-test-coverage`; umbral 85/65/80).
-- Duplicación (jscpd, `minLines 5`, `minTokens 50`): **0 %**.
-- Arquitectura: **0 violaciones** de la regla de dependencia (dependency-cruiser, 98 módulos).
+- Duplicación (jscpd, `minLines 5`, `minTokens 50`, alcance `apps` + `android/app/src` + `scripts`,
+  sin tests): **0 %**.
+- Arquitectura: **0 violaciones** de la regla de dependencia (dependency-cruiser, 104 módulos).
+- `metrics:new` regenera la cobertura con `test:coverage` y falla si `coverage/lcov.info` falta, es
+  anterior al commit `HEAD` o pertenece a otro árbol: nunca reutiliza cobertura vieja.
 - Android: **39 pruebas JVM** (gradlew testDebugUnitTest); el wrapper no tiene cobertura
   instrumentada (validación E2E manual en emulador).
 
@@ -248,9 +254,9 @@ apps/bridge/
   src/application/     puertos y casos de uso (emparejar, revocar, activar, estado)
   src/adapters/        persistencia JSON, crypto/forge, supervisor de dsh, HTTP, logging
   src/config/          esquema v2, migración v1→v2 y resolución de red
-  src/composition/     raíz de composición (única que conoce implementaciones)
+  src/composition/     runtime (reloj/logger/TLS) y wiring del grafo (única raíz)
   src/cli/             argumentos y ayuda
-  src/main.ts          entry: listeners, banner/QR y apagado ordenado
+  src/main.ts          entry: carga de config, arranque y apagado ordenado
   public/index.html    panel (módulos ES, sin build)
   public/js/api-client.js  cliente de la API v1 (CSRF + errores uniformes)
   public/js/main.js        estado y eventos del panel
@@ -264,10 +270,10 @@ android/               app Android (WebView nativo, QR, pinning de certificado)
 
 - **No se acopla a la sesión viva de la app de escritorio.** El host móvil es otro proceso sobre el
   mismo `$DSH_HOME`, pero por defecto usa un historial de sesiones aislado (`sessions-mobile`) para
-  no chocar con el lock de escritura de la app de escritorio. Con `dsh.sessions: "shared"` comparte la
+  no chocar con el lock de escritura de la app de escritorio. Con `harness.sessions: "shared"` comparte la
   lista, pero una sesión abierta en escritorio no puede estar viva en ambos a la vez: cerrala ahí
   antes de usarla en el teléfono.
 - Solo LAN/Wi‑Fi. Fuera de casa requeriría Tailscale/Cloudflare Tunnel (no incluido).
 - Sin notificaciones push ni service worker; la UI reconecta sola al volver a primer plano.
-- Sin APK nativa: la app es la PWA oficial instalada desde el navegador.
+- El APK Android es **debug** (útil para probar): no hay release firmado para distribución. La PWA oficial sigue siendo la opción principal.
 - Si la PC se suspende, el teléfono no la despierta.

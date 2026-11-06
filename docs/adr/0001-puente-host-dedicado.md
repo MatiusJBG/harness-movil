@@ -1,7 +1,12 @@
 # ADR 0001 — Puente y host dedicado para usar Harness desde el teléfono
 
-- Estado: aceptado
+- Estado: aceptado (histórico en cuanto al formato de configuración)
 - Fecha: 2026-11-05
+- Nota (2026-11-06): este ADR describe el diseño original del puente. Desde el refactor de
+  arquitectura limpia la configuración es `schemaVersion: 2` (`server.*`, `harness.*`,
+  `pairing.ticketTtlSeconds`, etc.) y las claves v1 (`listen.*`, `dsh.*`, `pairing.codeTtlSeconds`,
+  `publicHost`) se migran automáticamente con backup `config.v1.json`; ver
+  [ADR 0002](0002-arquitectura-limpia-y-solid.md) y [ADR 0003](0003-android-adaptador-delgado.md).
 - Contexto: DeepSeek Harness `0.2.1-rc.3`, UI web oficial con manifest PWA y layout responsive,
   autenticación por token de proceso, fence de `/api` por `Host`/`Origin`, servidor web que acepta
   `--host`, `--port`, `--public-url`, `--trusted-host`, TLS nativo.
@@ -99,7 +104,7 @@ recibía “This session is already in use…” al intentar escribir una de ell
 
 El host móvil arranca con un overlay `--patch` generado en `%LOCALAPPDATA%\harness-movil` que cambia
 `session-persistence-jsonl.root` a `$DSH_HOME/sessions-mobile`. Así el teléfono tiene su propio log
-append-only y nunca compite por el lock. `dsh.sessions: "shared"` desactiva el overlay de sesiones para quien
+append-only y nunca compite por el lock. `harness.sessions: "shared"` desactiva el overlay de sesiones para quien
 prefiera la misma lista de sesiones y acepte cerrar la sesión en escritorio primero.
 
 El mismo overlay copia la fila `agent-default-model` del perfil `desktop`, para que el host móvil use
@@ -110,6 +115,11 @@ teléfono en Ajustes → Modelos.
 **Alternativas descartadas**: detectar el lock (en Windows es un semáforo de kernel sin huella en
 disco), borrar el lock (corrompe la sesión), o interceptar el `open` para hacer un fork transparente
 (el cliente seguiría apuntando al id bloqueado).
+
+## Referencias
+
+- [ADR 0002 — Clean Architecture y SOLID en el puente](0002-arquitectura-limpia-y-solid.md).
+- [ADR 0003 — Android como adaptador delgado](0003-android-adaptador-delgado.md).
 
 ## Verificación
 

@@ -28,8 +28,8 @@ fence de Harness ve una petición local. La cookie del teléfono no se reenvía 
 | Fuerza bruta del código de 6 dígitos | TTL 5 min, un solo uso, límite 10/min por IP, comparación en tiempo constante. |
 | Robo del QR/enlace | El secreto viaja en el fragmento (`#p=`), no se registra en logs ni en el `Referer`; se consume al emparejar. |
 | Robo del teléfono emparejado | Revocación desde el panel; el token se guarda hasheado en disco; cookie `HttpOnly; Secure; SameSite=Lax`. |
-| CSRF desde otra pestaña del teléfono | `Origin`/`Sec-Fetch-Site` + cabecera `X-HM-CSRF`; sin CORS. |
-| DNS rebinding | El panel de admin solo escucha en loopback; la LAN exige TLS y cookie. |
+| CSRF desde otra pestaña del teléfono | `Origin`/`Sec-Fetch-Site` + cabecera `X-HM-CSRF`; sin CORS. Las rutas del proxy exigen same-origin cuando hay `Origin` y el upgrade WS aplica la misma comprobación. |
+| DNS rebinding | El panel de admin solo escucha en loopback, exige que el pedido llegue por loopback y valida `Host` (`127.0.0.1`, `localhost`, `[::1]` con el puerto real); la LAN exige TLS y cookie. |
 | Fuga del token de Harness | El intercambio lo hace el puente contra loopback; el token vive en memoria y se redacta en logs. |
 | Fuga de la cookie de Harness | Se guarda en un jar en memoria; `Set-Cookie` se elimina de las respuestas proxificadas. |
 | MITM en la LAN | TLS con CA local; el teléfono debe confiar en la CA. Sin la clave de la CA, un atacante no puede emitir una hoja válida. |
@@ -56,7 +56,7 @@ fence de Harness ve una petición local. La cookie del teléfono no se reenvía 
 - Desactivá la conexión cuando no la uses (o bajá `idleAutoOffMinutes`).
 - Revisá la lista de dispositivos y revocá los que no reconozcas.
 - No compartas el QR ni el código; duran 5 minutos y un solo uso.
-- Mantené DeepSeek Harness y el puente actualizados; fijá `dsh.command` si convivís con varias
+- Mantené DeepSeek Harness y el puente actualizados; fijá `harness.command` si convivís con varias
   versiones.
 - No copies `%LOCALAPPDATA%\harness-movil\tls\ca-key.pem` a otros equipos.
 

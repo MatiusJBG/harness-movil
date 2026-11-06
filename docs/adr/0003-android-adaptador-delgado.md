@@ -90,9 +90,14 @@ Mientras no exista ese segundo adaptador, interfaces y capas serían ceremonia s
 
 ## Consecuencias
 
-- Positivas: lógica pura testeada en JVM (39 pruebas: 9 heredadas + 30 nuevas); `ServerStore` cumple
+- Positivas: lógica pura testeada en JVM (39 pruebas: 30 nuevas de los objetos de valor + 9
+  heredadas que hoy ejercitan `ConnectionUrl`/`PairTarget`/`CertificatePin`); `ServerStore` cumple
   SRP; una sola definición de URL canónica, host key y huella; comportamiento y claves persistentes
   sin cambios; sin tocar manifest ni recursos.
+- Carencia declarada (C10): las 9 pruebas "heredadas" ya **no** ejercitan `ServerStore`; la
+  persistencia de `SharedPreferences` (claves `harness_movil`/`base_url`/`cert_fingerprint`) y el
+  diálogo TOFU de `SslTrust` no tienen prueba JVM (requerirían Robolectric o un puerto de
+  persistencia). Se validan E2E en emulador; ver "Verificación".
 - Negativas: tres archivos más y un salto de indirección al leer la configuración; `PairTarget`
   conserva la regla del path `/_hm/` mientras `ConnectionUrl` no la conoce; la app sigue sin capa de
   dominio propia, así que un segundo adaptador real exigirá un ADR nuevo con puertos.
@@ -101,7 +106,14 @@ Mientras no exista ese segundo adaptador, interfaces y capas serían ceremonia s
 
 - `cd android; .\gradlew.bat testDebugUnitTest --offline` → `BUILD SUCCESSFUL in 5s`,
   `21 actionable tasks: 5 executed, 16 up-to-date`.
-- 39 pruebas JVM, 0 fallos (`ServerStoreTest` 9, `ConnectionUrlTest` 11, `PairTargetTest` 10,
-  `CertificatePinTest` 9).
+- 39 pruebas JVM, 0 fallos (`ConnectionUrlTest` 11, `PairTargetTest` 10, `CertificatePinTest` 9,
+  `ServerStoreTest` 9). **Carencia**: las 9 de `ServerStoreTest` ya no llaman a `ServerStore`; la
+  persistencia y el TOFU no tienen prueba JVM y se validan E2E manualmente (instalar, emparejar por
+  QR, aceptar/rechazar el certificado).
 - Revisión manual: mismos formatos aceptados (URL sin esquema, `/_hm/#p=`, `harnessmovil://open`),
   mismos mensajes de UI y mismos nombres de preferencias; `AndroidManifest.xml` y `res/` sin cambios.
+
+## Referencias
+
+- [ADR 0001 — Puente y host dedicado](0001-puente-host-dedicado.md).
+- [ADR 0002 — Clean Architecture y SOLID en el puente](0002-arquitectura-limpia-y-solid.md).

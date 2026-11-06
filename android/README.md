@@ -4,6 +4,8 @@ Envoltorio nativo de la interfaz web oficial de DeepSeek Harness. **No reimpleme
 abre el puente de la PC en un WebView a pantalla completa, sin barra de navegador, con
 pinning del certificado, subida de archivos, descargas y botón atrás del sistema.
 
+Diseño y decisiones: [ADR 0003 — Android como adaptador delgado](../docs/adr/0003-android-adaptador-delgado.md).
+
 ```
 App Android
   └── WebView https://<ip-lan>:8443/
@@ -94,11 +96,12 @@ La primera compilación descarga Gradle y las dependencias de AndroidX/Material/
 cd android
 .\\gradlew.bat testDebugUnitTest
 ```
-39 pruebas JVM: las 9 de contrato del flujo de servidor (normalización de URL, host key, QR y deep link)
-repartidas entre `ConnectionUrl`, `PairTarget` y `ServerStoreTest`, más 30 pruebas nuevas de esos objetos de
-valor y de `CertificatePin`. La UI WebView se validó
-en un emulador Android 15: instalar, emparejar por QR, activar y abrir la UI oficial. El wrapper no tiene
-cobertura instrumentada (JaCoCo); esa métrica corresponde al puente Node.
+39 pruebas JVM: 11 de `ConnectionUrl`, 10 de `PairTarget`, 9 de `CertificatePin` y 9 de
+`ServerStoreTest`. **Carencia declarada**: las 9 de `ServerStoreTest` ya no ejercitan `ServerStore`;
+la persistencia de `SharedPreferences` y el diálogo TOFU de `SslTrust` no tienen prueba JVM
+(requerirían Robolectric o un puerto de persistencia) y se validan E2E en emulador. La UI WebView se
+validó en un emulador Android 15: instalar, emparejar por QR, activar y abrir la UI oficial. El wrapper
+no tiene cobertura instrumentada (JaCoCo); esa métrica corresponde al puente Node.
 
 Estructura:
 
