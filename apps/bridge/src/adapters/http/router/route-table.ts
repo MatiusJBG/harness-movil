@@ -63,11 +63,13 @@ export function createRouteTable(controllers: RouteControllers): RouteDefinition
     { method: 'GET', pattern: '/_hm/ca.cer', access: 'public', mutation: false, handle: controllers.ca.der },
     { method: 'GET', pattern: '/_hm/ca.pem', access: 'public', mutation: false, handle: controllers.ca.pem },
     { method: 'GET', pattern: '/_hm/*', access: 'public', mutation: false, handle: controllers.assets.get },
-    { method: 'HEAD', pattern: '/_hm/*', access: 'public', mutation: false, handle: controllers.assets.get },
-    // Todo lo demás es la UI oficial de Harness a través del proxy.
-    { method: 'GET', pattern: '/*', access: 'paired', mutation: false, handle: controllers.proxy.handle },
-    { method: 'HEAD', pattern: '/*', access: 'paired', mutation: false, handle: controllers.proxy.handle },
-    { method: 'POST', pattern: '/*', access: 'paired', mutation: false, handle: controllers.proxy.handle },
-    { method: 'DELETE', pattern: '/*', access: 'paired', mutation: false, handle: controllers.proxy.handle },
+    // Todo lo demás es la UI oficial de Harness a través del proxy. HEAD se atiende con GET.
+    // `sameOrigin` bloquea navegadores de otro origen; un cliente sin `Origin` pasa.
+    { method: 'GET', pattern: '/*', access: 'paired', mutation: false, sameOrigin: true, handle: controllers.proxy.handle },
+    { method: 'POST', pattern: '/*', access: 'paired', mutation: false, sameOrigin: true, handle: controllers.proxy.handle },
+    { method: 'PUT', pattern: '/*', access: 'paired', mutation: false, sameOrigin: true, handle: controllers.proxy.handle },
+    { method: 'PATCH', pattern: '/*', access: 'paired', mutation: false, sameOrigin: true, handle: controllers.proxy.handle },
+    { method: 'DELETE', pattern: '/*', access: 'paired', mutation: false, sameOrigin: true, handle: controllers.proxy.handle },
+    { method: 'OPTIONS', pattern: '/*', access: 'paired', mutation: false, sameOrigin: true, handle: controllers.proxy.handle },
   ]
 }

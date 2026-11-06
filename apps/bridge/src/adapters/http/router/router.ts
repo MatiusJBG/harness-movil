@@ -42,6 +42,9 @@ function evaluateGuards(
   if (route.access === 'paired' && !input.admin && input.device === null) {
     return { ok: false, status: 401, code: 'unpaired', message: 'Este dispositivo no está emparejado.' }
   }
+  if (route.sameOrigin === true && !sameOriginOk(input.req)) {
+    return { ok: false, status: 403, code: 'cross-origin', message: 'El pedido debe provenir del mismo origen del puente.' }
+  }
   if (route.mutation && !mutationAllowed(input.req)) {
     return { ok: false, status: 403, code: 'csrf', message: 'Origen no permitido o falta el encabezado anti-CSRF.' }
   }
@@ -57,6 +60,11 @@ function parseUrl(req: IncomingMessage): URL | null {
   } catch {
     return null
   }
+}
+
+/** CSP y cabeceras propias solo del panel: el proxy conserva las de Harness. */
+function isPanelPath(path: string): boolean {
+  return path === '/_hm' || path.startsWith('/_hm/')
 }
 
 /**
@@ -83,13 +91,13 @@ export function createRouter(options: RouterOptions): Router {
 
   return {
     handle: async (req, res, admin): Promise<void> => {
-      applySecurityHeaders(res)
       const url = parseUrl(req)
       if (url === null) {
         sendError(res, 400, 'bad-request', 'Pedido inválido.')
         return
       }
       const path = url.pathname
+      if (isPanelPath(path)) applySecurityHeaders(res)
       const device = admin ? null : options.authenticate(req)
       const ip = requestIp(req)
       const match = findRoute(options.routes, req.method ?? 'GET', path)

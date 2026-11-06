@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { PublicDevice } from '../../../domain/device/device.js'
 
-export type HttpMethod = 'GET' | 'HEAD' | 'POST' | 'DELETE'
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS'
 export type RouteAccess = 'public' | 'paired' | 'admin'
 
 export interface RequestContext {
@@ -23,6 +23,8 @@ export interface RouteDefinition {
   readonly access: RouteAccess
   /** Exige same-origin + cabecera anti-CSRF. */
   readonly mutation: boolean
+  /** Exige same-origin cuando el pedido trae `Origin` (rutas del proxy). */
+  readonly sameOrigin?: boolean
   readonly rateLimit?: 'pairing'
   readonly handle: (ctx: RequestContext) => Promise<void> | void
 }
@@ -70,9 +72,9 @@ export function findRoute(
   method: string,
   path: string,
 ): RouteMatch | null {
-  const normalized = method === 'HEAD' ? 'HEAD' : method
+  const isHead = method === 'HEAD'
   for (const route of routes) {
-    const methodMatches = route.method === normalized || (normalized === 'HEAD' && route.method === 'GET')
+    const methodMatches = route.method === method || (isHead && route.method === 'GET')
     if (!methodMatches) continue
     const params = matchPattern(route.pattern, path)
     if (params !== null) return { route, params }

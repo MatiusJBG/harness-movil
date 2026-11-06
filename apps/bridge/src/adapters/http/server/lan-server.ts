@@ -1,12 +1,12 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { createServer as createHttpsServer } from 'node:https'
-import type { Duplex } from 'node:stream'
 import type { Logger } from '../../../application/ports/logger.js'
 import type { TlsMaterial } from '../../../application/ports/tls-material-provider.js'
 import type { Router } from '../router/router.js'
+import type { UpgradeHandler } from '../router/upgrade-handler.js'
 import { sendError } from '../presenters/response.js'
 
-export type UpgradeHandler = (req: IncomingMessage, socket: Duplex, head: Buffer, admin: boolean) => void
+export type { UpgradeHandler }
 
 export interface LanServerOptions {
   readonly tls: TlsMaterial

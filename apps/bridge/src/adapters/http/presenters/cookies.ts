@@ -4,6 +4,10 @@ export const DEVICE_COOKIE = 'hm_device'
 export const CSRF_HEADER = 'x-hm-csrf'
 export const DEVICE_COOKIE_MAX_AGE_SECONDS = 90 * 24 * 60 * 60
 
+/**
+ * Parseo total: una cookie malformada (`hm_device=%`) se ignora, nunca lanza.
+ * Un valor ilegible se trata como "sin cookie" y el pedido sigue a 401.
+ */
 export function parseCookieHeader(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {}
   if (header === undefined) return out
@@ -12,7 +16,12 @@ export function parseCookieHeader(header: string | undefined): Record<string, st
     if (separator <= 0) continue
     const name = part.slice(0, separator).trim()
     const value = part.slice(separator + 1).trim()
-    if (name !== '') out[name] = decodeURIComponent(value)
+    if (name === '') continue
+    try {
+      out[name] = decodeURIComponent(value)
+    } catch {
+      // Cookie ilegible: se descarta en silencio (equivale a no emparejado).
+    }
   }
   return out
 }

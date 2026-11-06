@@ -57,6 +57,14 @@ describe('resolución de red', () => {
     expect(network.publicUrl).toBe('https://pc.local:9000/')
   })
 
+  it('formatea el admin IPv6 entre corchetes y rechaza hosts no loopback', () => {
+    const ipv6 = resolveNetwork(configWith({ admin: { host: '::1' } }), { env: {}, interfaces: createFakeInterfaces() })
+    expect(ipv6.adminHost).toBe('::1')
+    expect(ipv6.adminAuthority).toBe('[::1]:8444')
+    expect(ipv6.adminUrl).toBe('http://[::1]:8444/_hm/')
+    expect(() => configWith({ admin: { host: '0.0.0.0' } })).toThrow('loopback')
+  })
+
   it('rechaza host inválido y ausencia de LAN', () => {
     expect(() => resolveNetwork(configWith({ lan: { host: 'pc.local' } }), { env: {}, interfaces: createFakeInterfaces() })).toThrow(
       ConfigError,

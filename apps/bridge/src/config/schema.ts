@@ -15,7 +15,14 @@ const LanSchema = z
 
 const AdminSchema = z
   .object({
-    host: z.string().min(1).default('127.0.0.1'),
+    /** Solo loopback literal: el panel nunca puede escucharse en la LAN. */
+    host: z
+      .string()
+      .min(1)
+      .default('127.0.0.1')
+      .refine((value) => value === '127.0.0.1' || value === '::1', {
+        message: 'server.admin.host debe ser loopback literal ("127.0.0.1" o "::1").',
+      }),
     /** `null` = `server.lan.port + 1`. */
     port: z.number().int().min(1).max(65_535).nullable().default(null),
   })

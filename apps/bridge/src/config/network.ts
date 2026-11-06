@@ -54,6 +54,11 @@ function resolveLanHost(config: AppConfig, interfaces: InterfaceLike, env: NodeJ
   return configured
 }
 
+/** IPv6 literal entre corchetes para construir URLs/Host válidos. */
+function formatAuthorityHost(host: string): string {
+  return host.includes(':') ? `[${host}]` : host
+}
+
 export function resolveNetwork(config: AppConfig, options: ResolveNetworkOptions = {}): NetworkSettings {
   const env = options.env ?? process.env
   const interfaces = options.interfaces ?? networkInterfaces()
@@ -62,7 +67,7 @@ export function resolveNetwork(config: AppConfig, options: ResolveNetworkOptions
   const adminPort = config.server.admin.port ?? (port + 1 > 65_535 ? 1 : port + 1)
   const publicHost = config.server.publicHost ?? lanHost
   const authority = `${publicHost}:${String(port)}`
-  const adminAuthority = `${config.server.admin.host}:${String(adminPort)}`
+  const adminAuthority = `${formatAuthorityHost(config.server.admin.host)}:${String(adminPort)}`
   return {
     bindHost: lanHost,
     lanHost,

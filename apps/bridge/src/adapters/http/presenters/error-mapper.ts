@@ -7,6 +7,7 @@ import {
   NotAuthorizedError,
   TicketInvalidError,
 } from '../../../application/errors.js'
+import { DomainError } from '../../../domain/shared/domain-error.js'
 import { BodyTooLargeError, InvalidBodyError } from '../middleware/request-meta.js'
 
 export interface MappedError {
@@ -41,6 +42,9 @@ export function mapError(error: unknown): MappedError {
   }
   if (error instanceof InvalidBodyError) {
     return { status: 400, code: 'invalid-body', message: error.message, expected: true }
+  }
+  if (error instanceof DomainError) {
+    return { status: 400, code: error.code, message: error.message, expected: true }
   }
   if (error instanceof ApplicationError) {
     return { status: 400, code: error.code, message: error.message, expected: true }
