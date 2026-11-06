@@ -60,6 +60,15 @@ describe('caso de uso: listar dispositivos', () => {
     expect(own.admin).toBe(false)
   })
 
+  it('oculta los dispositivos revocados', () => {
+    const devices = [
+      createDeviceRecord('device-1'),
+      createDeviceRecord('device-2', { revokedAt: '2026-01-01T00:00:00.000Z' }),
+    ]
+    expect(listDevices({ devices, admin: true, deviceId: null }).devices).toHaveLength(1)
+    expect(listDevices({ devices, admin: true, deviceId: null }).devices[0]!.id).toBe('device-1')
+  })
+
   it('nunca proyecta el hash del token', () => {
     const [view] = listDevices({ devices: [createDeviceRecord('device-1')], admin: true, deviceId: null }).devices
     expect(Object.keys(view!).includes('tokenHash')).toBe(false)
