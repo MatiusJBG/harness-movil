@@ -9,23 +9,8 @@ import type {
 import type { Clock } from '../ports/clock.js'
 import type { HarnessLaunch, HarnessSupervisor } from '../ports/harness-supervisor.js'
 import type { Logger } from '../ports/logger.js'
+import type { Scheduler } from '../ports/scheduler.js'
 import type { SessionCookieStore } from '../ports/session-cookie-store.js'
-
-export interface Scheduler {
-  setInterval(callback: () => void, ms: number): unknown
-  clearInterval(handle: unknown): void
-}
-
-const defaultScheduler: Scheduler = {
-  setInterval(callback, ms) {
-    const handle = setInterval(callback, ms)
-    handle.unref()
-    return handle
-  },
-  clearInterval(handle) {
-    clearInterval(handle as ReturnType<typeof setInterval>)
-  },
-}
 
 export interface ActivationOptions {
   readonly supervisor: HarnessSupervisor
@@ -35,7 +20,8 @@ export interface ActivationOptions {
   readonly idleAutoOffMinutes: number
   /** Intervalo del chequeo de inactividad; los tests lo acortan. */
   readonly idleCheckMs?: number
-  readonly scheduler?: Scheduler
+  /** Obligatorio: la aplicación nunca usa temporizadores globales. */
+  readonly scheduler: Scheduler
 }
 
 /**
@@ -54,7 +40,7 @@ export class Activation implements ActivationReader, ActivationControl, Activati
   private readonly scheduler: Scheduler
 
   constructor(private readonly options: ActivationOptions) {
-    this.scheduler = options.scheduler ?? defaultScheduler
+    this.scheduler = options.scheduler
     this.unsubscribeExit = options.supervisor.onExit(() => {
       if (this.stateValue !== 'active' && this.stateValue !== 'starting') return
       this.options.cookies.clear()

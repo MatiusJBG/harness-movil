@@ -1,36 +1,18 @@
-import { createServer, type IncomingMessage, type Server } from 'node:http'
+import { createServer, type Server } from 'node:http'
 import { join } from 'node:path'
 import { WebSocket } from 'ws'
-import { Activation } from '../../src/application/use-cases/activation.js'
-import { authenticateRequest } from '../../src/application/use-cases/authenticate-request.js'
-import { pairDevice, type PairDeviceInput, type PairDeviceResult } from '../../src/application/use-cases/pair-device.js'
-import { revokeDevice } from '../../src/application/use-cases/revoke-device.js'
-import { signOutDevice } from '../../src/application/use-cases/sign-out-device.js'
-import { readPairingTicket, refreshPairingTicket } from '../../src/application/use-cases/issue-pairing-ticket.js'
+import type { DeviceRepository } from '../../src/application/ports/device-repository.js'
+import type { Scheduler } from '../../src/application/ports/scheduler.js'
 import type { AppSettings } from '../../src/application/ports/settings.js'
 import type { TlsMaterial } from '../../src/application/ports/tls-material-provider.js'
 import type { PairingTicket } from '../../src/domain/pairing/pairing-ticket.js'
+import type { PairDeviceInput, PairDeviceResult } from '../../src/application/use-cases/pair-device.js'
+import type { Activation } from '../../src/application/use-cases/activation.js'
 import { createDevice } from '../../src/domain/device/device.js'
-import { createActivationController } from '../../src/adapters/http/controllers/activation-controller.js'
-import { createAssetsController } from '../../src/adapters/http/controllers/assets-controller.js'
-import { createCaController } from '../../src/adapters/http/controllers/ca-controller.js'
-import { createDevicesController } from '../../src/adapters/http/controllers/devices-controller.js'
-import { createDiagnosticsController } from '../../src/adapters/http/controllers/diagnostics-controller.js'
-import { createPairingController } from '../../src/adapters/http/controllers/pairing-controller.js'
-import { createProxyController } from '../../src/adapters/http/controllers/proxy-controller.js'
-import { createSessionController } from '../../src/adapters/http/controllers/session-controller.js'
-import { createStatusController } from '../../src/adapters/http/controllers/status-controller.js'
-import { requestIp } from '../../src/adapters/http/middleware/request-meta.js'
-import { createHttpProxy } from '../../src/adapters/http/proxy/http-proxy-adapter.js'
-import { createRouteTable } from '../../src/adapters/http/router/route-table.js'
-import { createRouter, readDeviceToken } from '../../src/adapters/http/router/router.js'
-import { createUpgradeHandler } from '../../src/adapters/http/router/upgrade-handler.js'
-import { PublicAssetManifest } from '../../src/adapters/http/static/asset-manifest.js'
-import { InMemoryPairingTicketStore } from '../../src/adapters/pairing/in-memory-pairing-ticket-store.js'
+import { createAdminServer } from '../../src/adapters/http/server/admin-server.js'
 import { JsonDeviceRepository } from '../../src/adapters/persistence/json-device-repository.js'
-import { CryptoIdGenerator } from '../../src/adapters/security/crypto-id-generator.js'
-import { MemoryRateLimiter } from '../../src/adapters/security/memory-rate-limiter.js'
 import { Sha256SecretHasher } from '../../src/adapters/security/sha256-secret-hasher.js'
+import { wireApplication } from '../../src/composition/wiring.js'
 import { createFakeClock, createFakeCookies, createFakeLogger, createFakeSupervisor, FIXED_NOW_MS } from './fakes.js'
 import { startFakeUpstream, TEST_COOKIE, type FakeUpstream } from './fake-upstream.js'
 import { makeTempDir, removeTempDir } from './fs.js'
@@ -57,10 +39,9 @@ export interface TestResponse {
 export interface TestBridge {
   readonly settings: AppSettings
   readonly activation: Activation
-  readonly devices: JsonDeviceRepository
+  readonly devices: DeviceRepository
   readonly supervisor: ReturnType<typeof createFakeSupervisor>
   readonly clock: ReturnType<typeof createFakeClock>
-  readonly tickets: InMemoryPairingTicketStore
   readonly upstream: FakeUpstream
   readonly tls: TlsMaterial
   readonly lanPort: number
@@ -87,6 +68,12 @@ function fakeTls(): TlsMaterial {
     sans: ['127.0.0.1'],
     reused: true,
   }
+}
+
+/** Temporizador inerte: la integración no depende de relojes reales. */
+const INERT_SCHEDULER: Scheduler = {
+  setInterval: () => 0,
+  clearInterval: () => undefined,
 }
 
 function listen(server: Server): Promise<number> {
@@ -143,14 +130,6 @@ export async function startBridge(options: HarnessOptions = {}): Promise<TestBri
 
   const devices = new JsonDeviceRepository({ file: settings.paths.devicesFile, clock })
   await devices.load()
-  const hasher = new Sha256SecretHasher()
-  const at = new Date(FIXED_NOW_MS).toISOString()
-  await devices.add(
-    createDevice({ id: 'device-1', name: 'Test Phone', tokenHash: hasher.hash('secret-1'), ip: '127.0.0.1', timestamp: at }),
-  )
-
-  const ids = new CryptoIdGenerator()
-  const tickets = new InMemoryPairingTicketStore(ids)
   const supervisor = createFakeSupervisor({
     pid: 4242,
     port: upstream.port,
@@ -159,86 +138,27 @@ export async function startBridge(options: HarnessOptions = {}): Promise<TestBri
     command: 'dsh',
   })
   const cookies = createFakeCookies()
-  const activation = new Activation({
-    supervisor,
-    cookies,
+  const hasher = new Sha256SecretHasher()
+  await devices.add(
+    createDevice({ id: 'device-1', name: 'Test Phone', tokenHash: hasher.hash('secret-1'), ip: '127.0.0.1', timestamp: new Date(FIXED_NOW_MS).toISOString() }),
+  )
+
+  const app = await wireApplication({
+    settings,
     logger,
     clock,
-    idleAutoOffMinutes: settings.activation.idleAutoOffMinutes,
+    tls,
+    version: 'test',
+    publicDir: PUBLIC_DIR,
+    scheduler: INERT_SCHEDULER,
+    overrides: { devices, supervisor, cookies },
   })
-  const proxy = createHttpProxy({
-    logger,
-    publicUrl: settings.network.publicUrl,
-    cookie: () => cookies.header(),
-  })
-  const limiter = new MemoryRateLimiter(settings.limits.pairingPerMinute, 60_000, clock)
-  const assets = await PublicAssetManifest.load(PUBLIC_DIR)
-  const pairingDeps = { tickets, clock, ttlSeconds: settings.pairing.ticketTtlSeconds }
-  const sessionsRoot = join(settings.paths.dshHome, 'sessions-mobile')
-
-  const controllers = {
-    session: createSessionController({
-      activation,
-      signOut: (body) => signOutDevice({ devices, clock }, body),
-    }),
-    pairing: createPairingController({
-      pair: (body) => pairDevice({ tickets, devices, hasher, ids, clock }, body),
-      readTicket: () => readPairingTicket(pairingDeps),
-      refreshTicket: () => refreshPairingTicket(pairingDeps),
-      publicUrl: settings.network.publicUrl,
-      maxBodyBytes: settings.limits.maxBodyBytes,
-      maxDevices: settings.pairing.maxDevices,
-      limiter,
-      logger,
-    }),
-    devices: createDevicesController({
-      devices,
-      revoke: (body) => revokeDevice({ devices, clock }, body),
-      logger,
-    }),
-    activation: createActivationController({ activation, logger }),
-    status: createStatusController({
-      activation,
-      devices,
-      network: settings.network,
-      harness: settings.harness,
-      paths: settings.paths,
-      sessionsRoot,
-      tls,
-      version: 'test',
-      clock,
-    }),
-    diagnostics: createDiagnosticsController({
-      version: 'test',
-      runtime: { node: process.version, platform: `${process.platform}-${process.arch}` },
-      paths: settings.paths,
-      harness: settings.harness,
-      network: settings.network,
-      tls,
-    }),
-    ca: createCaController({ tls }),
-    assets: createAssetsController({ assets }),
-    proxy: createProxyController({ proxy, activation }),
-  }
-
-  const authenticate = (req: IncomingMessage) =>
-    authenticateRequest({ devices, hasher, clock }, { token: readDeviceToken(req), ip: requestIp(req) })
-  const router = createRouter({
-    routes: createRouteTable(controllers),
-    authenticate,
-    pairingLimiter: limiter,
-    logger,
-  })
-  const upgrade = createUpgradeHandler({ authenticate, activation, proxy, logger })
 
   const lanServer = createServer((req, res) => {
-    void router.handle(req, res, false)
+    void app.router.handle(req, res, false)
   })
-  lanServer.on('upgrade', (req, socket, head) => upgrade(req, socket, head, false))
-  const adminServer = createServer((req, res) => {
-    void router.handle(req, res, true)
-  })
-  adminServer.on('upgrade', (req, socket, head) => upgrade(req, socket, head, true))
+  lanServer.on('upgrade', (req, socket, head) => app.upgrade(req, socket, head, false))
+  const adminServer = createAdminServer({ router: app.router, upgrade: app.upgrade, logger })
   const lanPort = await listen(lanServer)
   const adminPort = await listen(adminServer)
 
@@ -276,17 +196,16 @@ export async function startBridge(options: HarnessOptions = {}): Promise<TestBri
 
   const bridge: TestBridge = {
     settings,
-    activation,
-    devices,
+    activation: app.activation,
+    devices: app.devices,
     supervisor,
     clock,
-    tickets,
     upstream,
     tls,
     lanPort,
     adminPort,
-    ticket: () => readPairingTicket(pairingDeps),
-    pair: (input) => pairDevice({ tickets, devices, hasher, ids, clock }, input),
+    ticket: () => app.pairingTicket(),
+    pair: (input) => app.pair(input),
     call,
     wsStatus(url, headers) {
       return new Promise((resolve) => {
@@ -312,7 +231,6 @@ export async function startBridge(options: HarnessOptions = {}): Promise<TestBri
       })
     },
     async close() {
-      proxy.close()
       lanServer.closeAllConnections()
       adminServer.closeAllConnections()
       await Promise.all([
@@ -320,7 +238,7 @@ export async function startBridge(options: HarnessOptions = {}): Promise<TestBri
         new Promise<void>((resolve) => adminServer.close(() => resolve())),
       ])
       await upstream.close()
-      await activation.dispose()
+      await app.dispose()
       await removeTempDir(dir)
     },
   }

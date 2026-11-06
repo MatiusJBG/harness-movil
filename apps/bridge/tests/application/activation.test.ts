@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from '../helpers/testkit.js'
-import { Activation, type Scheduler } from '../../src/application/use-cases/activation.js'
+import { Activation } from '../../src/application/use-cases/activation.js'
+import type { Scheduler } from '../../src/application/ports/scheduler.js'
 import { createFakeClock, createFakeCookies, createFakeLogger, createFakeSupervisor } from '../helpers/fakes.js'
 
 interface FakeScheduler extends Scheduler {

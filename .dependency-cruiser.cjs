@@ -58,6 +58,13 @@ module.exports = {
       to: { circular: true },
     },
     {
+      name: 'main-no-adapters',
+      severity: 'error',
+      comment: 'main.ts solo compone: los adaptadores se instancian en composition/.',
+      from: { path: '^apps/bridge/src/main\\.ts$' },
+      to: { path: '^apps/bridge/src/adapters/' },
+    },
+    {
       name: 'no-import-main',
       severity: 'error',
       comment: 'Nadie importa el punto de entrada main.ts.',
