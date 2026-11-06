@@ -13,16 +13,16 @@
     "start:built": "node apps/bridge/dist/main.js",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean:test": "node -e \"const fs=require('node:fs');fs.rmSync('test-dist',{recursive:true,force:true});fs.mkdirSync('coverage',{recursive:true})\"",
+    "clean:test": "node -e \"const fs=require('node:fs');fs.rmSync('test-dist',{recursive:true,force:true});fs.rmSync('coverage/lcov.info',{force:true});fs.mkdirSync('coverage',{recursive:true})\"",
     "test": "npm run clean:test && tsc -p tsconfig.test.json && node --test --test-isolation=none --test-force-exit \"test-dist/tests/**/*.test.js\"",
     "test:coverage": "npm run clean:test && tsc -p tsconfig.test.json && node --experimental-test-coverage --test-coverage-include=\"**/test-dist/src/**\" --test-coverage-lines=85 --test-coverage-functions=80 --test-coverage-branches=65 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test --test-isolation=none --test-force-exit \"test-dist/tests/**/*.test.js\"",
-    "dup": "jscpd apps --threshold 0 --min-lines 5 --min-tokens 50",
+    "dup": "jscpd apps android/app/src scripts --threshold 0 --min-lines 5 --min-tokens 50",
     "metrics": "npm run test:coverage && npm run dup",
     "lint": "eslint .",
     "arch": "depcruise apps/bridge/src --config .dependency-cruiser.cjs",
     "pretest": "npm run arch",
     "verify": "npm run typecheck && npm run lint && npm run arch && npm test",
-    "metrics:new": "node scripts/metrics-diff.mjs"
+    "metrics:new": "npm run test:coverage && node scripts/metrics-diff.mjs"
   },
   "dependencies": {
     "http-proxy": "^1.18.1",

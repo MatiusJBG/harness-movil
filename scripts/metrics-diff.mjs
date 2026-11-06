@@ -5,24 +5,34 @@
 //
 // Uso: node scripts/metrics-diff.mjs [base]
 //      node scripts/metrics-diff.mjs --base=origin/main
+//
+// La cobertura NO se genera acá: `npm run metrics:new` ejecuta antes
+// `npm run test:coverage`. El script falla si falta el lcov, si es anterior al
+// commit HEAD o si no pertenece a este árbol (nunca reutiliza cobertura ajena).
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const LCOV_PATH = join(REPO_ROOT, 'coverage', 'lcov.info')
 const SRC_DIR = 'apps/bridge/src'
+const REPO_DUP_TARGETS = ['apps', 'android/app/src', 'scripts']
+const CODE_FILE = /\.(?:ts|js|mjs|cjs|java)$/
 const DEFAULT_BASE = 'origin/main'
 const JSCPD_BIN = join(REPO_ROOT, 'node_modules', 'jscpd', 'bin', 'jscpd')
 const JSCPD_CONFIG = join(REPO_ROOT, '.jscpd.json')
 const JSCPD_OUTPUT = join(REPO_ROOT, '.tmp', 'jscpd-metrics')
-const TEST_TIMEOUT_MS = Number.parseInt(process.env.METRICS_TEST_TIMEOUT_MS ?? '300000', 10)
 const warnings = []
 
 function warn(message) {
   warnings.push(message)
   console.warn('[metrics-diff] aviso: ' + message)
+}
+
+function fail(message) {
+  console.error('[metrics-diff] error: ' + message)
+  process.exit(1)
 }
 
 function run(command, args, options = {}) {
@@ -59,34 +69,35 @@ function toRepoRelative(filePath) {
   return withSlashes.replace(/^\.\//, '')
 }
 
-function ensureLcov() {
-  if (existsSync(LCOV_PATH)) {
-    console.log('[metrics-diff] Reutilizando ' + toRepoRelative(LCOV_PATH))
-    return true
-  }
-  console.log('[metrics-diff] Generando cobertura lcov con node --test ...')
-  mkdirSync(dirname(LCOV_PATH), { recursive: true })
-  const destination = toRepoRelative(LCOV_PATH)
-  const result = run(
-    process.execPath,
-    [
-      '--test',
-      '--experimental-test-coverage',
-      '--test-reporter=lcov',
-      '--test-reporter-destination=' + destination,
-    ],
-    { timeout: TEST_TIMEOUT_MS },
-  )
-  if (result.error && result.error.code === 'ETIMEDOUT') {
-    warn('la generación de lcov superó ' + String(TEST_TIMEOUT_MS) + ' ms; se omite la cobertura.')
-    return false
-  }
-  if (!existsSync(LCOV_PATH)) {
+function headCommitTimeMs() {
+  const result = run('git', ['log', '-1', '--format=%ct', 'HEAD'])
+  if (!result.ok) {
     const detail = result.stderr.trim() || String(result.error?.message ?? 'código ' + String(result.status))
-    warn('no se pudo generar coverage/lcov.info (' + detail + ').')
-    return false
+    fail('no se pudo leer la fecha del commit HEAD: ' + detail)
   }
-  return true
+  const seconds = Number.parseInt(result.stdout.trim(), 10)
+  if (!Number.isFinite(seconds)) fail('git devolvió una fecha de commit inválida: "' + result.stdout.trim() + '"')
+  return seconds * 1000
+}
+
+/** Exige un lcov de este árbol y posterior al commit HEAD. */
+function requireFreshLcov() {
+  if (!existsSync(LCOV_PATH)) {
+    fail('no existe coverage/lcov.info. Ejecutá `npm run test:coverage` antes de metrics:new.')
+  }
+  const mtimeMs = statSync(LCOV_PATH).mtimeMs
+  const headTimeMs = headCommitTimeMs()
+  if (mtimeMs < headTimeMs) {
+    fail(
+      'coverage/lcov.info (' +
+        new Date(mtimeMs).toISOString() +
+        ') es anterior al commit HEAD (' +
+        new Date(headTimeMs).toISOString() +
+        '). Regenerá la cobertura con `npm run test:coverage`.',
+    )
+  }
+  console.log('[metrics-diff] lcov fresco: ' + toRepoRelative(LCOV_PATH))
+  return mtimeMs
 }
 
 /**
@@ -122,6 +133,16 @@ function readCoverage() {
     }
   }
   return coverage
+}
+
+/** El lcov debe referirse a rutas de este checkout, no de otro árbol. */
+function assertLcovFromThisTree(coverage) {
+  const keys = [...coverage.instrumented.keys()]
+  if (keys.length === 0) fail('coverage/lcov.info no tiene registros SF; regenerá la cobertura.')
+  const local = keys.filter((key) => key.startsWith('test-dist/') || key.startsWith(SRC_DIR + '/'))
+  if (local.length === 0) {
+    fail('coverage/lcov.info no contiene rutas de este árbol (' + SRC_DIR + ' o test-dist); no se reutiliza cobertura ajena.')
+  }
 }
 
 function coverageFor(coverage, file) {
@@ -165,6 +186,23 @@ function readNewLines(base) {
     }
   }
   return newLines
+}
+
+/**
+ * Archivos cambiados de todo el repo: `git diff --name-only base...HEAD`,
+ * filtrado por extensión de código y existencia (incluye public/js y Java).
+ */
+function listChangedFiles(base) {
+  const result = run('git', ['diff', '--name-only', base + '...HEAD'])
+  if (!result.ok) {
+    const detail = result.stderr.trim() || String(result.error?.message ?? 'código ' + String(result.status))
+    warn('no se pudo listar git diff --name-only ' + base + '...HEAD: ' + detail)
+    return []
+  }
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((file) => file !== '' && CODE_FILE.test(file) && existsSync(join(REPO_ROOT, file)))
 }
 
 function computeNewCoverage(newLines, coverage) {
@@ -264,15 +302,17 @@ function printSummary(summary) {
 function main() {
   const base = parseArgs(process.argv.slice(2))
   console.log('[metrics-diff] Base de comparación: ' + base)
-  const hasLcov = ensureLcov()
-  const coverage = hasLcov ? readCoverage() : null
+  requireFreshLcov()
+  const coverage = readCoverage()
+  if (!coverage) fail('no se pudo leer coverage/lcov.info.')
+  assertLcovFromThisTree(coverage)
   const newLines = readNewLines(base)
   const coverageSummary = computeNewCoverage(newLines, coverage)
-  const changedFiles = newLines ? [...newLines.keys()].filter((file) => existsSync(join(REPO_ROOT, file))) : []
-  const repoDupPct = runJscpd('repo (apps)', ['apps'], join(JSCPD_OUTPUT, 'repo'))
+  const changedFiles = listChangedFiles(base)
+  const repoDupPct = runJscpd('repo (' + REPO_DUP_TARGETS.join('+') + ')', REPO_DUP_TARGETS, join(JSCPD_OUTPUT, 'repo'))
   const newDupPct = runJscpd('archivos cambiados', changedFiles, join(JSCPD_OUTPUT, 'changed'))
-  if (newLines && changedFiles.length === 0) {
-    console.log('[metrics-diff] Sin archivos cambiados: newDupPct no aplica.')
+  if (changedFiles.length === 0) {
+    console.log('[metrics-diff] Sin archivos de código cambiados: newDupPct no aplica.')
   }
   printSummary({
     base,

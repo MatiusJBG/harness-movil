@@ -3,5 +3,14 @@
   "minLines": 5,
   "minTokens": 50,
   "reporters": ["console"],
-  "ignore": ["**/*.test.ts", "**/tests/**", "**/dist/**", "**/test-dist/**", "**/node_modules/**"]
+  "ignore": [
+    "**/*.test.ts",
+    "**/tests/**",
+    "**/src/test/**",
+    "**/src/androidTest/**",
+    "**/*Test.java",
+    "**/dist/**",
+    "**/test-dist/**",
+    "**/node_modules/**"
+  ]
 }
